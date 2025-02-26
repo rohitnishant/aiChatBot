@@ -81,22 +81,25 @@ def analyze_code_diff(file_diffs):
 
 # Step 4: Post Inline Comments on GitHub
 def post_inline_comments(pr_number, review_suggestions):
-    print(review_suggestions)
     for suggestion in review_suggestions:
-        print(suggestion)
         filename = suggestion["filename"]
         review = suggestion["review"]
 
         # Extract inline comments with suggested code improvements
         comments = extract_inline_comments(review, filename)
-        print(f"comments`{comments}");
+
         for comment in comments:
+            position = get_comment_position(pr_number, filename, comment["line_number"])
+            if position is None:
+                print(f"⚠️ Skipping comment on {filename}, line {comment['line_number']} (position not found)")
+                continue  # Skip if position isn't found
+
             comment_payload = {
                 "body": comment["comment"],
                 "commit_id": get_latest_commit_sha(pr_number),
                 "path": filename,
                 "side": "RIGHT",
-                "line": comment["line_number"]
+                "position": position  # This is required for inline comments
             }
 
             url = f"https://api.github.com/repos/{REPO_NAME}/pulls/{pr_number}/comments"
@@ -109,14 +112,12 @@ def post_inline_comments(pr_number, review_suggestions):
             else:
                 print(f"❌ Failed to post inline comment: {response.json()}")
 
-
 # Step 5: Extract Inline Comments from AI Review
 def extract_inline_comments(review_text, filename):
     inline_comments = []
     
     lines = review_text.split("\n")
     for line in lines:
-        print(f"line`{line}")
         if "Line:" in line:
             parts = line.split("Line:")
             potential_line_number = parts[1].split()[0]
@@ -146,6 +147,34 @@ def get_latest_commit_sha(pr_number):
     else:
         print("❌ Failed to fetch latest commit SHA.")
         return None
+
+# Step 7: Get Comment Position in PR Diff
+def get_comment_position(pr_number, filename, line_number):
+    url = f"https://api.github.com/repos/{REPO_NAME}/pulls/{pr_number}/files"
+    response = requests.get(url, headers=HEADERS)
+    
+    if response.status_code != 200:
+        print(f"❌ Failed to fetch PR diff for {filename}: {response.json()}")
+        return None
+    
+    files = response.json()
+
+    for file in files:
+        if file["filename"] == filename:
+            patch = file.get("patch", "").split("\n")
+            pos = 0  # GitHub diff position tracker
+
+            for line in patch:
+                if line.startswith("@@"):
+                    match = re.search(r"\+(\d+)", line)
+                    if match:
+                        pos = int(match.group(1))
+                elif not line.startswith("-"):
+                    if pos == line_number:
+                        return patch.index(line) + 1
+                    pos += 1
+
+    return None
 
 # Run AI Review Process
 if __name__ == "__main__":
