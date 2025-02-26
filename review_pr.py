@@ -1,13 +1,11 @@
 import os
 import requests
 import openai
-from dotenv import load_dotenv
 
-# Load environment variables
-load_dotenv()
-GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-REPO_NAME = os.getenv("REPO_NAME")
+# Load environment variables from GitHub Secrets
+GITHUB_TOKEN = os.environ["GITHUB_TOKEN"]
+OPENAI_API_KEY = os.environ["OPENAI_API_KEY"]
+REPO_NAME = os.environ["REPO_NAME"]
 
 # GitHub API headers
 HEADERS = {
