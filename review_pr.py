@@ -87,7 +87,8 @@ def post_inline_comments(pr_number, review_suggestions):
 
         # Extract inline comments with suggested code improvements
         comments = extract_inline_comments(review, filename)
-
+        print(f"📝 Extracted {len(comments)} inline comments from AI review.")
+        print(comments)
         for comment in comments:
             position = get_comment_position(pr_number, filename, comment["line_number"])
             if position is None:
