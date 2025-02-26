@@ -43,10 +43,10 @@ def analyze_code_diff(file_diffs):
     
     for file in file_diffs:
         filename = file["filename"]
-        patch = file.get("patch", "")  # Code diff (line changes)
+        patch = file.get("patch", "") 
         
         if not patch:
-            continue  # Skip files with no changes
+            continue  #
         
         prompt = f"""
         You are an AI code reviewer. Analyze the following GitHub pull request code changes and provide feedback on:
@@ -97,8 +97,9 @@ def post_inline_comments(pr_number, review_suggestions):
             }
 
             url = f"https://api.github.com/repos/{REPO_NAME}/pulls/{pr_number}/comments"
+            print(url)
             response = requests.post(url, headers=HEADERS, json=comment_payload)
-
+            print({response.json()})
             if response.status_code == 201:
                 print(f"✅ Successfully posted inline comment on {filename}, line {comment['line_number']}")
             else:
