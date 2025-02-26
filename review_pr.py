@@ -81,7 +81,9 @@ def analyze_code_diff(file_diffs):
 
 # Step 4: Post Inline Comments on GitHub
 def post_inline_comments(pr_number, review_suggestions):
+    print(review_suggestions)
     for suggestion in review_suggestions:
+        print(suggestion)
         filename = suggestion["filename"]
         review = suggestion["review"]
 
@@ -100,11 +102,13 @@ def post_inline_comments(pr_number, review_suggestions):
             url = f"https://api.github.com/repos/{REPO_NAME}/pulls/{pr_number}/comments"
             print(f"Posting comment to: {url}")
             response = requests.post(url, headers=HEADERS, json=comment_payload)
-            print({response.json()})
+            print(response.json())
+
             if response.status_code == 201:
-                print(f"✅ Successfully posted inline comment on {filename}, line {comment['line_number']}")
+                print(f"✅ Successfully posted inline comment on '{filename}', line {comment['line_number']}")
             else:
                 print(f"❌ Failed to post inline comment: {response.json()}")
+
 
 # Step 5: Extract Inline Comments from AI Review
 def extract_inline_comments(review_text, filename):
