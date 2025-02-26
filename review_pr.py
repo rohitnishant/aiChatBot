@@ -82,6 +82,7 @@ def analyze_code_diff(file_diffs):
 # Step 4: Post Inline Comments on GitHub
 def post_inline_comments(pr_number, review_suggestions):
     for suggestion in review_suggestions:
+        print(f"🔍 Processing {suggestion} for '{suggestion['filename']}'..." )
         filename = suggestion["filename"]
         review = suggestion["review"]
 
