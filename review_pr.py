@@ -41,7 +41,18 @@ def get_modified_files(pr_number):
     
     return response.json()
 
-# Step 3: Fetch File Content
+# Step 3: Fetch PR Branch Name
+def get_pr_branch(pr_number):
+    url = f"https://api.github.com/repos/{REPO_NAME}/pulls/{pr_number}"
+    response = requests.get(url, headers=HEADERS)
+
+    if response.status_code == 200:
+        return response.json()["head"]["ref"]  # PR branch name
+    else:
+        print(f"❌ Failed to fetch PR branch: {response.json()}")
+        return None
+
+# Step 4: Fetch File Content
 def get_file_content(file_path):
     url = f"https://api.github.com/repos/{REPO_NAME}/contents/{file_path}"
     response = requests.get(url, headers=HEADERS)
@@ -53,7 +64,7 @@ def get_file_content(file_path):
         print(f"Failed to fetch content for {file_path}: {response.json()}")
         return None
 
-# Step 4: Call ChatGPT API for Code Review and Fixes
+# Step 5: Call ChatGPT API for Code Review and Fixes
 def review_and_fix_code(file_path, file_content):
     prompt = f"""
     You are an AI code reviewer. Analyze the following GitHub pull request file changes and provide feedback on:
@@ -80,8 +91,13 @@ def review_and_fix_code(file_path, file_content):
 
     return response.choices[0].message.content
 
-# Step 5: Commit Improved Code
+# Step 6: Commit Improved Code
 def commit_code_changes(file_path, improved_code, pr_number):
+    branch_name = get_pr_branch(pr_number)
+    if not branch_name:
+        print(f"❌ Skipping commit for {file_path} (branch not found)")
+        return
+
     url = f"https://api.github.com/repos/{REPO_NAME}/contents/{file_path}"
     
     # Fetch file metadata
@@ -97,16 +113,16 @@ def commit_code_changes(file_path, improved_code, pr_number):
         "message": f"AI Code Improvement for {file_path} in PR #{pr_number}",
         "content": encoded_content,
         "sha": sha,
-        "branch": f"refs/pull/{pr_number}/head"
+        "branch": branch_name  # ✅ Use the actual PR branch
     }
     
     commit_response = requests.put(url, headers=HEADERS, json=data)
-    if commit_response.status_code == 200:
+    if commit_response.status_code == 200 or commit_response.status_code == 201:
         print(f"✅ Successfully committed improvements to {file_path}")
     else:
         print(f"❌ Failed to commit improvements for {file_path}: {commit_response.json()}")
 
-# Step 6: Post AI Review as PR Comment
+# Step 7: Post AI Review as PR Comment
 def post_pr_comment(pr_number, review):
     url = f"https://api.github.com/repos/{REPO_NAME}/issues/{pr_number}/comments"
     data = {"body": review}
