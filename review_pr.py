@@ -89,7 +89,7 @@ def post_inline_comments(pr_number, review_suggestions):
 
         # Extract inline comments with suggested code improvements
         comments = extract_inline_comments(review, filename)
-
+        print(f"comments`{comments}");
         for comment in comments:
             comment_payload = {
                 "body": comment["comment"],
@@ -116,6 +116,7 @@ def extract_inline_comments(review_text, filename):
     
     lines = review_text.split("\n")
     for line in lines:
+        print(f"line`{line}")
         if "Line:" in line:
             parts = line.split("Line:")
             potential_line_number = parts[1].split()[0]
