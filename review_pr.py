@@ -61,15 +61,17 @@ def review_code_with_chatgpt(code_diff):
     Provide a structured review with clear and constructive comments.
     """
 
-    response = openai.ChatCompletion.create(
+    client = openai.OpenAI(api_key=os.environ["OPENAI_API_KEY"])  # New SDK format
+
+    response = client.chat.completions.create(
         model="gpt-4",
         messages=[
             {"role": "system", "content": "You are a professional software code reviewer."},
             {"role": "user", "content": prompt}
         ]
     )
-    
-    return response["choices"][0]["message"]["content"]
+
+    return response.choices[0].message.content
 
 # Step 5: Post AI Review as PR Comment
 def post_pr_comment(pr_number, review):
