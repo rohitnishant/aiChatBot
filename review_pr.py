@@ -56,8 +56,10 @@ def get_file_content(file_path):
 
 # Step 4: Call ChatGPT API for Code Review and Inline Comments
 def review_code(file_path, file_content):
+    language = file_path.split(".")[-1]  # Extract file extension to determine language
+    
     prompt = f"""
-    You are an AI code reviewer. Analyze the following GitHub pull request file changes and provide feedback on:
+    You are an AI code reviewer. Analyze the following GitHub pull request file changes written in {language} and provide feedback on:
     - Code quality and best practices
     - Readability and maintainability
     - Efficiency and performance improvements
@@ -83,7 +85,7 @@ def review_code(file_path, file_content):
     response = client.chat.completions.create(
         model="gpt-4",
         messages=[
-            {"role": "system", "content": "You are a professional software code reviewer."},
+            {"role": "system", "content": "You are a professional software code reviewer for multiple programming languages."},
             {"role": "user", "content": prompt}
         ]
     )
@@ -104,7 +106,7 @@ def post_inline_comments(pr_number, file_path, comments):
     for comment in comments:
         comment_body = comment["comment"]
         if "suggested_code" in comment and comment["suggested_code"]:
-            comment_body += f"\n\n**Suggested Code:**\n```python\n{comment['suggested_code']}\n```"
+            comment_body += f"\n\n**Suggested Code:**\n```{file_path.split('.')[-1]}\n{comment['suggested_code']}\n```"
 
         comment_payload = {
             "body": comment_body,
