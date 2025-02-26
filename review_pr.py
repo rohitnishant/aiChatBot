@@ -2,6 +2,7 @@ import os
 import requests
 import openai
 import base64
+import json
 
 # Load environment variables from GitHub Secrets
 GITHUB_TOKEN = os.getenv("PAT_TOKEN")  # Use `get()` to avoid crashes
@@ -52,31 +53,28 @@ def get_pr_branch(pr_number):
         print(f"❌ Failed to fetch PR branch: {response.json()}")
         return None
 
-# Step 4: Fetch File Content
-def get_file_content(file_path):
-    url = f"https://api.github.com/repos/{REPO_NAME}/contents/{file_path}"
-    response = requests.get(url, headers=HEADERS)
-    
-    if response.status_code == 200:
-        content = response.json()["content"]
-        return base64.b64decode(content).decode("utf-8")
-    else:
-        print(f"Failed to fetch content for {file_path}: {response.json()}")
-        return None
-
-# Step 5: Call ChatGPT API for Code Review and Fixes
-def review_and_fix_code(file_path, file_content):
+# Step 4: Call ChatGPT API for Code Review and Inline Comments
+def review_code(file_path, file_content):
     prompt = f"""
     You are an AI code reviewer. Analyze the following GitHub pull request file changes and provide feedback on:
     - Code quality and best practices
     - Readability and maintainability
     - Efficiency and performance improvements
     - Security vulnerabilities (if any)
-    Additionally, suggest improved code replacements where needed.
+    Additionally, provide inline comments with line numbers where improvements are needed.
 
     File Path: {file_path}
     Code:
     {file_content}
+    
+    Return structured JSON like this:
+    {{
+        "review": "Overall review text here.",
+        "comments": [
+            {{ "line": 12, "comment": "Consider refactoring this loop to use a dictionary lookup instead of multiple if conditions." }},
+            {{ "line": 25, "comment": "Avoid hardcoding API keys. Use environment variables instead." }}
+        ]
+    }}
     """
     
     client = openai.OpenAI(api_key=OPENAI_API_KEY)
@@ -89,40 +87,37 @@ def review_and_fix_code(file_path, file_content):
         ]
     )
 
-    return response.choices[0].message.content
+    try:
+        return json.loads(response.choices[0].message.content)
+    except json.JSONDecodeError:
+        print("❌ Failed to parse AI response.")
+        return {"review": "", "comments": []}
 
-# Step 6: Commit Improved Code
-def commit_code_changes(file_path, improved_code, pr_number):
-    branch_name = get_pr_branch(pr_number)
-    if not branch_name:
-        print(f"❌ Skipping commit for {file_path} (branch not found)")
+# Step 5: Post Inline PR Comments
+def post_inline_comments(pr_number, file_path, comments):
+    commit_id = get_latest_commit_sha(pr_number)
+    if not commit_id:
+        print(f"❌ Failed to fetch commit SHA for {file_path}. Skipping inline comments.")
         return
 
-    url = f"https://api.github.com/repos/{REPO_NAME}/contents/{file_path}"
-    
-    # Fetch file metadata
-    response = requests.get(url, headers=HEADERS)
-    if response.status_code != 200:
-        print(f"❌ Failed to fetch file metadata for {file_path}: {response.json()}")
-        return
-    
-    sha = response.json()["sha"]  # Needed to update the file
-    encoded_content = base64.b64encode(improved_code.encode("utf-8")).decode("utf-8")
-    
-    data = {
-        "message": f"AI Code Improvement for {file_path} in PR #{pr_number}",
-        "content": encoded_content,
-        "sha": sha,
-        "branch": branch_name  # ✅ Use the actual PR branch
-    }
-    
-    commit_response = requests.put(url, headers=HEADERS, json=data)
-    if commit_response.status_code == 200 or commit_response.status_code == 201:
-        print(f"✅ Successfully committed improvements to {file_path}")
-    else:
-        print(f"❌ Failed to commit improvements for {file_path}: {commit_response.json()}")
+    for comment in comments:
+        comment_payload = {
+            "body": comment["comment"],
+            "commit_id": commit_id,
+            "path": file_path,
+            "side": "RIGHT",
+            "line": comment["line"]  # Must match PR diff line number
+        }
 
-# Step 7: Post AI Review as PR Comment
+        url = f"https://api.github.com/repos/{REPO_NAME}/pulls/{pr_number}/comments"
+        response = requests.post(url, headers=HEADERS, json=comment_payload)
+
+        if response.status_code == 201:
+            print(f"✅ Successfully posted inline comment on {file_path}, line {comment['line']}")
+        else:
+            print(f"❌ Failed to post inline comment: {response.json()}")
+
+# Step 6: Post Overall AI Review as PR Comment
 def post_pr_comment(pr_number, review):
     url = f"https://api.github.com/repos/{REPO_NAME}/issues/{pr_number}/comments"
     data = {"body": review}
@@ -130,9 +125,20 @@ def post_pr_comment(pr_number, review):
     response = requests.post(url, headers=HEADERS, json=data)
     
     if response.status_code == 201:
-        print("Successfully posted AI review comment.")
+        print("✅ Successfully posted AI review comment.")
     else:
-        print("Failed to post PR comment:", response.json())
+        print("❌ Failed to post PR comment:", response.json())
+
+# Step 7: Get Latest Commit SHA
+def get_latest_commit_sha(pr_number):
+    url = f"https://api.github.com/repos/{REPO_NAME}/pulls/{pr_number}/commits"
+    response = requests.get(url, headers=HEADERS)
+    
+    if response.status_code == 200 and response.json():
+        return response.json()[-1]["sha"]  # Get latest commit SHA
+    else:
+        print("❌ Failed to fetch latest commit SHA.")
+        return None
 
 # Main Execution Flow
 if __name__ == "__main__":
@@ -152,6 +158,8 @@ if __name__ == "__main__":
         print("No modified files found. Exiting...")
         exit()
     
+    full_review = ""
+    
     for file in files:
         file_path = file["filename"]
         print(f"Processing file: {file_path}")
@@ -160,11 +168,14 @@ if __name__ == "__main__":
         if not file_content:
             continue
         
-        print("Reviewing and improving code...")
-        improved_code = review_and_fix_code(file_path, file_content)
+        print("Reviewing file...")
+        review_data = review_code(file_path, file_content)
         
-        print("Committing improvements...")
-        commit_code_changes(file_path, improved_code, PR_NUMBER)
+        if review_data["comments"]:
+            print("Posting inline comments...")
+            post_inline_comments(PR_NUMBER, file_path, review_data["comments"])
+        
+        full_review += f"### {file_path}\n{review_data['review']}\n\n"
     
     print("Posting AI review as a PR comment...")
-    post_pr_comment(PR_NUMBER, "AI-generated code improvements have been committed. Please review the changes.")
+    post_pr_comment(PR_NUMBER, full_review)
