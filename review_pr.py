@@ -31,7 +31,18 @@ def get_latest_pr_number():
         print("No open PRs found or failed to fetch PRs.")
         return None
 
-# Step 2: Fetch PR Files
+# Step 2: Fetch PR Branch Name
+def get_pr_branch(pr_number):
+    url = f"https://api.github.com/repos/{REPO_NAME}/pulls/{pr_number}"
+    response = requests.get(url, headers=HEADERS)
+    
+    if response.status_code == 200:
+        return response.json()["head"]["ref"]  # PR branch name
+    else:
+        print(f"❌ Failed to fetch PR branch: {response.json()}")
+        return None
+
+# Step 3: Fetch PR Files
 def get_modified_files(pr_number):
     url = f"https://api.github.com/repos/{REPO_NAME}/pulls/{pr_number}/files"
     response = requests.get(url, headers=HEADERS)
@@ -42,42 +53,47 @@ def get_modified_files(pr_number):
     
     return response.json()
 
-# Step 3: Fetch File Content
-def get_file_content(file_path):
-    url = f"https://api.github.com/repos/{REPO_NAME}/contents/{file_path}"
+# Step 4: Fetch File Content from PR Branch
+def get_file_content(file_path, branch_name):
+    url = f"https://api.github.com/repos/{REPO_NAME}/contents/{file_path}?ref={branch_name}"
     response = requests.get(url, headers=HEADERS)
     
     if response.status_code == 200:
         content = response.json()["content"]
         return base64.b64decode(content).decode("utf-8")
+    elif response.status_code == 404:
+        print(f"⚠️ Skipping missing file: {file_path} (Not found in branch {branch_name})")
     else:
-        print(f"Failed to fetch content for {file_path}: {response.json()}")
-        return None
+        print(f"❌ Failed to fetch content for {file_path}: {response.json()}")
 
-# Step 4: Call ChatGPT API for Code Review and Inline Comments
+    return None
+
+# Step 5: Call ChatGPT API for Code Review and Inline Comments
 def review_code(file_path, file_content):
-    language = file_path.split(".")[-1]  # Extract file extension to determine language
+    language = file_path.split(".")[-1]
     
     prompt = f"""
-    You are an AI code reviewer. Analyze the following GitHub pull request file changes written in {language} and provide feedback on:
+    You are an AI code reviewer for {language}. Analyze the following file changes and provide feedback on:
     - Code quality and best practices
     - Readability and maintainability
     - Efficiency and performance improvements
     - Security vulnerabilities (if any)
-    Additionally, provide inline comments with line numbers where improvements are needed and suggest improved code snippets.
+    - Provide inline comments with line numbers and suggest improved code snippets.
 
     File Path: {file_path}
     Code:
     {file_content}
-    
-    Return structured JSON like this:
+
+    Respond strictly in valid JSON format:
+    ```
     {{
         "review": "Overall review text here.",
         "comments": [
-            {{ "line": 12, "comment": "Consider refactoring this loop to use a dictionary lookup instead of multiple if conditions.", "suggested_code": "new_code_here" }},
-            {{ "line": 25, "comment": "Avoid hardcoding API keys. Use environment variables instead.", "suggested_code": "new_code_here" }}
+            {{"line": 12, "comment": "Consider refactoring this loop to use a dictionary lookup instead of multiple if conditions.", "suggested_code": "new_code_here"}},
+            {{"line": 25, "comment": "Avoid hardcoding API keys. Use environment variables instead.", "suggested_code": "new_code_here"}}
         ]
     }}
+    ```
     """
     
     client = openai.OpenAI(api_key=OPENAI_API_KEY)
@@ -85,18 +101,27 @@ def review_code(file_path, file_content):
     response = client.chat.completions.create(
         model="gpt-4",
         messages=[
-            {"role": "system", "content": "You are a professional software code reviewer for multiple programming languages."},
+            {"role": "system", "content": "You are a professional software code reviewer. Always respond strictly in JSON format."},
             {"role": "user", "content": prompt}
         ]
     )
 
     try:
-        return json.loads(response.choices[0].message.content)
-    except json.JSONDecodeError:
-        print("❌ Failed to parse AI response.")
-        return {"review": "", "comments": []}
+        ai_response = response.choices[0].message.content.strip()
+        json_start = ai_response.find("{")
+        json_end = ai_response.rfind("}")
+        
+        if json_start == -1 or json_end == -1:
+            print(f"⚠️ Unexpected AI response: {ai_response}")
+            return {"review": "AI response could not be parsed.", "comments": []}
+        
+        return json.loads(ai_response[json_start : json_end + 1])
 
-# Step 5: Post Inline PR Comments
+    except json.JSONDecodeError:
+        print(f"❌ Failed to parse AI response: {response.choices[0].message.content}")
+        return {"review": "AI response could not be parsed.", "comments": []}
+
+# Step 6: Post Inline PR Comments
 def post_inline_comments(pr_number, file_path, comments):
     commit_id = get_latest_commit_sha(pr_number)
     if not commit_id:
@@ -124,7 +149,7 @@ def post_inline_comments(pr_number, file_path, comments):
         else:
             print(f"❌ Failed to post inline comment: {response.json()}")
 
-# Step 6: Post Overall AI Review as PR Comment
+# Step 7: Post Overall AI Review as PR Comment
 def post_pr_comment(pr_number, review):
     url = f"https://api.github.com/repos/{REPO_NAME}/issues/{pr_number}/comments"
     data = {"body": review}
@@ -134,9 +159,9 @@ def post_pr_comment(pr_number, review):
     if response.status_code == 201:
         print("✅ Successfully posted AI review comment.")
     else:
-        print("❌ Failed to post PR comment:", response.json())
+        print(f"❌ Failed to post PR comment: {response.json()}")
 
-# Step 7: Get Latest Commit SHA
+# Step 8: Get Latest Commit SHA
 def get_latest_commit_sha(pr_number):
     url = f"https://api.github.com/repos/{REPO_NAME}/pulls/{pr_number}/commits"
     response = requests.get(url, headers=HEADERS)
@@ -158,6 +183,15 @@ if __name__ == "__main__":
 
     print(f"Latest PR number: {PR_NUMBER}")
     
+    print("Fetching PR branch name...")
+    PR_BRANCH = get_pr_branch(PR_NUMBER)
+    
+    if not PR_BRANCH:
+        print("❌ Could not determine PR branch. Exiting...")
+        exit()
+    
+    print(f"PR Branch: {PR_BRANCH}")
+    
     print("Fetching modified files...")
     files = get_modified_files(PR_NUMBER)
     
@@ -166,12 +200,12 @@ if __name__ == "__main__":
         exit()
     
     full_review = ""
-    
+
     for file in files:
         file_path = file["filename"]
         print(f"Processing file: {file_path}")
         
-        file_content = get_file_content(file_path)
+        file_content = get_file_content(file_path, PR_BRANCH)
         if not file_content:
             continue
         
@@ -183,6 +217,6 @@ if __name__ == "__main__":
             post_inline_comments(PR_NUMBER, file_path, review_data["comments"])
         
         full_review += f"### {file_path}\n{review_data['review']}\n\n"
-    
+
     print("Posting AI review as a PR comment...")
     post_pr_comment(PR_NUMBER, full_review)
