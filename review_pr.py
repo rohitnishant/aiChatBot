@@ -67,8 +67,8 @@ def review_code(file_path, file_content):
     File Path: {file_path}
     Code:
     {file_content}
-    
-    Return structured JSON like this:
+
+    Respond strictly in JSON format:
     {{
         "review": "Overall review text here.",
         "comments": [
@@ -76,23 +76,31 @@ def review_code(file_path, file_content):
             {{ "line": 25, "comment": "Avoid hardcoding API keys. Use environment variables instead." }}
         ]
     }}
+    Ensure your response is valid JSON.
     """
-    
+
     client = openai.OpenAI(api_key=OPENAI_API_KEY)
-    
+
     response = client.chat.completions.create(
         model="gpt-4",
         messages=[
-            {"role": "system", "content": "You are a professional software code reviewer."},
+            {"role": "system", "content": "You are a professional software code reviewer. Always respond in strict JSON format."},
             {"role": "user", "content": prompt}
         ]
     )
 
     try:
-        return json.loads(response.choices[0].message.content)
+        ai_response = response.choices[0].message.content.strip()
+
+        # Ensure response starts with '{' to avoid extra text
+        if not ai_response.startswith("{"):
+            print(f"⚠️ Unexpected AI response: {ai_response}")
+            return {"review": "AI response could not be parsed.", "comments": []}
+
+        return json.loads(ai_response)
     except json.JSONDecodeError:
-        print("❌ Failed to parse AI response.")
-        return {"review": "", "comments": []}
+        print(f"❌ Failed to parse AI response. Response: {response.choices[0].message.content}")
+        return {"review": "AI response could not be parsed.", "comments": []}
 
 # Step 5: Post Inline PR Comments
 def post_inline_comments(pr_number, file_path, comments):
