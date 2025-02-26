@@ -1,8 +1,8 @@
 name: AI PR Review
 
 on:
-  workflow_dispatch:  # Allows manual trigger
-  pull_request:       # Runs when a PR is opened, updated, or reopened
+  workflow_dispatch:
+  pull_request:
     types: [opened, synchronize, reopened]
 
 jobs:
@@ -24,6 +24,6 @@ jobs:
       - name: Run AI Review Script
         run: python review_pr.py
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PAT_TOKEN: ${{ secrets.PAT_TOKEN }}  # Ensure it's correctly passed
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           REPO_NAME: ${{ vars.REPO_NAME }}

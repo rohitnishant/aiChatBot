@@ -15,9 +15,9 @@ def calculator():
             elif operator == '*':
                 result = num1 * num2
             elif operator == '/':
-                if num2 == 0:
-                    print("Error: Division by zero is not allowed.")
-                    continue
+                # if num2 == 0:
+                #     print("Error: Division by zero is not allowed.")
+                #     continue
                 result = num1 / num2
             else:
                 print("Invalid operator! Please use +, -, *, or /.")
