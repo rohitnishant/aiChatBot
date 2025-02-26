@@ -8,22 +8,22 @@ def calculator():
             operator = input("Enter operator (+, -, *, /): ")
             num2 = float(input("Enter second number: "))
             
-            # if operator == '+':
-            #     result = num1 + num2
-            # elif operator == '-':
-            #     result = num1 - num2
-            # elif operator == '*':
-            #     result = num1 * num2
-            # elif operator == '/':
-                # if num2 == 0:
-                #     print("Error: Division by zero is not allowed.")
-            #     #     continue
-            #     result = num1 / num2
-            # # else:
-            #     print("Invalid operator! Please use +, -, *, or /.")
-            #     continue
+            if operator == '+':
+                result = num1 + num2
+            elif operator == '-':
+                result = num1 - num2
+            elif operator == '*':
+                result = num1 * num2
+            elif operator == '/':
+                if num2 == 0:
+                    print("Error: Division by zero is not allowed.")
+                #     continue
+                result = num1 / num2
+            # else:
+                print("Invalid operator! Please use +, -, *, or /.")
+                continue
             
-            # print(f"Result: {result}")
+            print(f"Result: {result}")
             
             cont = input("Do you want to perform another calculation? (yes/no): ").strip().lower()
             if cont != 'yes':
