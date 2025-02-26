@@ -1,6 +1,7 @@
 import os
 import requests
 import openai
+import re  # Add regex for validation
 
 # Load environment variables from GitHub Secrets
 GITHUB_TOKEN = os.environ["PAT_TOKEN"]  # ✅ Corrected
@@ -43,10 +44,10 @@ def analyze_code_diff(file_diffs):
     
     for file in file_diffs:
         filename = file["filename"]
-        patch = file.get("patch", "") 
+        patch = file.get("patch", "")  # Code diff (line changes)
         
         if not patch:
-            continue  #
+            continue  # Skip files with no changes
         
         prompt = f"""
         You are an AI code reviewer. Analyze the following GitHub pull request code changes and provide feedback on:
@@ -97,7 +98,7 @@ def post_inline_comments(pr_number, review_suggestions):
             }
 
             url = f"https://api.github.com/repos/{REPO_NAME}/pulls/{pr_number}/comments"
-            print(url)
+            print(f"Posting comment to: {url}")
             response = requests.post(url, headers=HEADERS, json=comment_payload)
             print({response.json()})
             if response.status_code == 201:
@@ -113,14 +114,20 @@ def extract_inline_comments(review_text, filename):
     for line in lines:
         if "Line:" in line:
             parts = line.split("Line:")
-            line_number = int(parts[1].split()[0])
-            comment = " ".join(parts[1].split()[1:])
-            
-            inline_comments.append({
-                "filename": filename,
-                "line_number": line_number,
-                "comment": comment
-            })
+            potential_line_number = parts[1].split()[0]
+
+            # Ensure the extracted value is a valid integer
+            if re.match(r'^\d+$', potential_line_number):  # ✅ Checks if it's a number
+                line_number = int(potential_line_number)
+                comment = " ".join(parts[1].split()[1:])
+                
+                inline_comments.append({
+                    "filename": filename,
+                    "line_number": line_number,
+                    "comment": comment
+                })
+            else:
+                print(f"⚠️ Skipping invalid line number: {potential_line_number} in AI response")
 
     return inline_comments
 
