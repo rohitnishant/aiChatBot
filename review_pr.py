@@ -1,13 +1,15 @@
 import os
 import requests
 import openai
-from dotenv import load_dotenv
 
-# Load environment variables
-load_dotenv()
-GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-REPO_NAME = os.getenv("REPO_NAME")
+# Load environment variables from GitHub Secrets
+GITHUB_TOKEN = os.getenv("PAT_TOKEN")  # Use `get()` to avoid crashes
+
+if not GITHUB_TOKEN:
+    raise ValueError("❌ PAT_TOKEN environment variable is missing. Ensure it is set in GitHub Secrets.")
+
+OPENAI_API_KEY = os.environ["OPENAI_API_KEY"]
+REPO_NAME = os.environ["REPO_NAME"]
 
 # GitHub API headers
 HEADERS = {
@@ -63,15 +65,17 @@ def review_code_with_chatgpt(code_diff):
     Provide a structured review with clear and constructive comments.
     """
 
-    response = openai.ChatCompletion.create(
+    client = openai.OpenAI(api_key=os.environ["OPENAI_API_KEY"])  # New SDK format
+
+    response = client.chat.completions.create(
         model="gpt-4",
         messages=[
             {"role": "system", "content": "You are a professional software code reviewer."},
             {"role": "user", "content": prompt}
         ]
     )
-    
-    return response["choices"][0]["message"]["content"]
+
+    return response.choices[0].message.content
 
 # Step 5: Post AI Review as PR Comment
 def post_pr_comment(pr_number, review):
