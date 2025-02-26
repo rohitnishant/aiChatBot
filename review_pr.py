@@ -42,15 +42,16 @@ def get_modified_files(pr_number):
     
     return response.json()
 
-# Step 3: Fetch PR Branch Name
-def get_pr_branch(pr_number):
-    url = f"https://api.github.com/repos/{REPO_NAME}/pulls/{pr_number}"
+# Step 3: Fetch File Content
+def get_file_content(file_path):
+    url = f"https://api.github.com/repos/{REPO_NAME}/contents/{file_path}"
     response = requests.get(url, headers=HEADERS)
-
+    
     if response.status_code == 200:
-        return response.json()["head"]["ref"]  # PR branch name
+        content = response.json()["content"]
+        return base64.b64decode(content).decode("utf-8")
     else:
-        print(f"❌ Failed to fetch PR branch: {response.json()}")
+        print(f"Failed to fetch content for {file_path}: {response.json()}")
         return None
 
 # Step 4: Call ChatGPT API for Code Review and Inline Comments
