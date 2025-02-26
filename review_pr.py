@@ -62,45 +62,37 @@ def review_code(file_path, file_content):
     - Readability and maintainability
     - Efficiency and performance improvements
     - Security vulnerabilities (if any)
-    Additionally, provide inline comments with line numbers where improvements are needed.
+    Additionally, provide inline comments with line numbers where improvements are needed and suggest improved code snippets.
 
     File Path: {file_path}
     Code:
     {file_content}
-
-    Respond strictly in JSON format:
+    
+    Return structured JSON like this:
     {{
         "review": "Overall review text here.",
         "comments": [
-            {{ "line": 12, "comment": "Consider refactoring this loop to use a dictionary lookup instead of multiple if conditions." }},
-            {{ "line": 25, "comment": "Avoid hardcoding API keys. Use environment variables instead." }}
+            {{ "line": 12, "comment": "Consider refactoring this loop to use a dictionary lookup instead of multiple if conditions.", "suggested_code": "new_code_here" }},
+            {{ "line": 25, "comment": "Avoid hardcoding API keys. Use environment variables instead.", "suggested_code": "new_code_here" }}
         ]
     }}
-    Ensure your response is valid JSON.
     """
-
+    
     client = openai.OpenAI(api_key=OPENAI_API_KEY)
-
+    
     response = client.chat.completions.create(
         model="gpt-4",
         messages=[
-            {"role": "system", "content": "You are a professional software code reviewer. Always respond in strict JSON format."},
+            {"role": "system", "content": "You are a professional software code reviewer."},
             {"role": "user", "content": prompt}
         ]
     )
 
     try:
-        ai_response = response.choices[0].message.content.strip()
-
-        # Ensure response starts with '{' to avoid extra text
-        if not ai_response.startswith("{"):
-            print(f"⚠️ Unexpected AI response: {ai_response}")
-            return {"review": "AI response could not be parsed.", "comments": []}
-
-        return json.loads(ai_response)
+        return json.loads(response.choices[0].message.content)
     except json.JSONDecodeError:
-        print(f"❌ Failed to parse AI response. Response: {response.choices[0].message.content}")
-        return {"review": "AI response could not be parsed.", "comments": []}
+        print("❌ Failed to parse AI response.")
+        return {"review": "", "comments": []}
 
 # Step 5: Post Inline PR Comments
 def post_inline_comments(pr_number, file_path, comments):
@@ -110,8 +102,12 @@ def post_inline_comments(pr_number, file_path, comments):
         return
 
     for comment in comments:
+        comment_body = comment["comment"]
+        if "suggested_code" in comment and comment["suggested_code"]:
+            comment_body += f"\n\n**Suggested Code:**\n```python\n{comment['suggested_code']}\n```"
+
         comment_payload = {
-            "body": comment["comment"],
+            "body": comment_body,
             "commit_id": commit_id,
             "path": file_path,
             "side": "RIGHT",
