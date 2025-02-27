@@ -94,7 +94,6 @@ def review_code(file_path, file_content):
         File Path: {file_path}
         Code:
         {file_content}
-
         Respond strictly in valid JSON format:
         {{
             "review": "Overall review text here.",
@@ -112,6 +111,7 @@ def review_code(file_path, file_content):
         )
         ai_response = response.choices[0].message.content.strip()
         logger.info(ai_response)
+        logger.info(json.loads(ai_response[ai_response.find("{") : ai_response.rfind("}") + 1]))
         return json.loads(ai_response[ai_response.find("{") : ai_response.rfind("}") + 1])
     except (openai.error.OpenAIError, json.JSONDecodeError) as e:
         logger.error(f"Error reviewing code: {e}")
