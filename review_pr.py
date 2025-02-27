@@ -29,7 +29,7 @@ GITHUB_HEADERS = {
     "Authorization": f"token {GITHUB_TOKEN}",
     "Accept": "application/vnd.github.v3+json",
 }
-OPENAI_MODEL = "gpt-4o-mini"
+OPENAI_MODEL = "gpt-4"
 AI_ROLE = "You are a professional software code reviewer. Always respond strictly in JSON format."
 
 #It fetches the latest PR number
