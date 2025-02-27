@@ -102,53 +102,45 @@ def review_code(file_path, file_content):
     Respond strictly in valid JSON format:
     {{
         "overall_review": "Summary of findings.",
-        "code_quality_and_best_practices": [...],
-        "readability_and_maintainability": [...],
-        "efficiency_and_performance_improvements": [...],
-        "security_vulnerabilities": [...]
+        "comments": [
+            {{"line": 12, "comment": "Consider refactoring this loop to use a dictionary lookup.", "suggested_code": "new_code_here"}}
+        ]
     }}
     """
 
     try:
-        client = openai.Client(api_key=OPENAI_API_KEY)
+        client = openai.OpenAI(api_key=OPENAI_API_KEY)
         response = client.chat.completions.create(
             model=OPENAI_MODEL,
             messages=[{"role": "system", "content": AI_SYSTEM_ROLE}, {"role": "user", "content": prompt}]
         )
-        ai_response = response.choices[0].message.content.strip()
-
-        # Ensure JSON is properly formatted
-        json_start = ai_response.find("{")
-        json_end = ai_response.rfind("}")
-        if json_start == -1 or json_end == -1:
-            raise ValueError("AI response is not valid JSON.")
-
-        return json.loads(ai_response[json_start : json_end + 1])
-
-    except (Exception, json.JSONDecodeError, ValueError) as e:
+        return response.json()["choices"][0]["message"]["content"]
+    except Exception as e:
         logger.error(f"Error reviewing code: {e}")
-        return {
-            "overall_review": "AI review could not be generated.",
-            "code_quality_and_best_practices": [],
-            "readability_and_maintainability": [],
-            "efficiency_and_performance_improvements": [],
-            "security_vulnerabilities": []
+        return {"overall_review": "AI review could not be generated.", "comments": []}
+
+
+def post_inline_comments(pr_number, file_path, comments):
+    """Post inline comments in the PR files."""
+    for comment in comments:
+        payload = {
+            "body": f"{comment['comment']}\n\n**Suggested Code:**\n```{file_path.split('.')[-1]}\n{comment['suggested_code']}\n```",
+            "commit_id": get_latest_commit_sha(pr_number),
+            "path": file_path,
+            "side": "RIGHT",
+            "line": comment["line"]
         }
+        try:
+            url = f"{GITHUB_API_BASE_URL}/repos/{REPO_NAME}/pulls/{pr_number}/comments"
+            response = requests.post(url, headers=GITHUB_HEADERS, json=payload)
+            response.raise_for_status()
+        except requests.RequestException as e:
+            logger.error(f"Error posting inline comment: {e}")
 
 
 def post_pr_comment(pr_number, review_data):
     """Post a summarized AI review as a PR comment."""
-    formatted_review = "## 🔍 Overall AI Review\n"
-    formatted_review += f"{review_data.get('overall_review', 'No overall review provided.')}\n\n"
-
-    for category, comments in review_data.items():
-        if category == "overall_review":
-            continue
-        formatted_review += f"### {category.replace('_', ' ').title()}\n"
-        for comment in comments:
-            formatted_review += f"- **Line {comment['line']}**: {comment['comment']}\n"
-        formatted_review += "\n"
-
+    formatted_review = f"## 🔍 Overall AI Review\n{review_data.get('overall_review', 'No overall review provided.')}\n\n"
     try:
         url = f"{GITHUB_API_BASE_URL}/repos/{REPO_NAME}/issues/{pr_number}/comments"
         response = requests.post(url, headers=GITHUB_HEADERS, json={"body": formatted_review})
@@ -163,17 +155,10 @@ if __name__ == "__main__":
         PR_BRANCH = get_pr_branch(PR_NUMBER)
         if PR_BRANCH:
             files = get_modified_files(PR_NUMBER)
-            full_review_data = {"overall_review": "This PR contains changes that impact multiple areas."}
-
             for file in files:
                 file_path = file["filename"]
                 file_content = get_file_content(file_path, PR_BRANCH)
-                if not file_content:
-                    continue
-
-                review_data = review_code(file_path, file_content)
-                for category in ["code_quality_and_best_practices", "readability_and_maintainability",
-                                 "efficiency_and_performance_improvements", "security_vulnerabilities"]:
-                    full_review_data.setdefault(category, []).extend(review_data.get(category, []))
-
-            post_pr_comment(PR_NUMBER, full_review_data)
+                if file_content:
+                    review_data = review_code(file_path, file_content)
+                    post_inline_comments(PR_NUMBER, file_path, review_data.get("comments", []))
+                    post_pr_comment(PR_NUMBER, review_data)
