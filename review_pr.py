@@ -32,7 +32,7 @@ GITHUB_HEADERS = {
 }
 
 # we can change the model as we want to use.
-OPENAI_MODEL = "gpt-4"
+OPENAI_MODEL = "gpt-4o-mini"
 
 # AI role for the conversation
 AI_ROLE = "You are a professional software code reviewer. Always respond strictly in JSON format."
@@ -104,7 +104,7 @@ def review_code(file_path, file_content):
         Respond strictly in valid JSON format:
         {{
             "review": "Overall review text here.",
-            "comments": [
+            "comment": [
                 {{"line": 12, "comment": "Consider refactoring this loop to use a dictionary lookup.", "suggested_code": "new_code_here"}}
             ]
         }}
@@ -185,9 +185,9 @@ if __name__ == "__main__":
         if not file_content:
             continue
         review_data = review_code(file_path, file_content)
-        print(review_data);
-        if review_data["comments"]:
-            post_inline_comments(PR_NUMBER, file_path, review_data["comments"])
+        print(review_data)
+        if review_data["comment"]:
+            post_inline_comments(PR_NUMBER, file_path, review_data["comment"])
         full_review += f"### {file_path}\n{review_data['review']}\n\n"
 
     post_pr_comment(PR_NUMBER, full_review)
