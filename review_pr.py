@@ -23,7 +23,7 @@ GITHUB_HEADERS = {
 OPENAI_MODEL = "gpt-4o-mini"
 AI_ROLE = "You are a professional software code reviewer. Always respond strictly in JSON format."
 
-# Check required environment variables
+# Validate Environment Variables
 required_env_vars = {"PAT_TOKEN": GITHUB_TOKEN, "OPENAI_API_KEY": OPENAI_API_KEY, "REPO_NAME": REPO_NAME}
 missing_vars = [var for var, value in required_env_vars.items() if not value]
 if missing_vars:
@@ -70,8 +70,11 @@ def get_file_content(file_path, branch_name):
         response = requests.get(url, headers=GITHUB_HEADERS)
         response.raise_for_status()
         return base64.b64decode(response.json()["content"]).decode("utf-8")
-    except requests.RequestException as e:
-        logger.error(f"Error fetching file content: {e}")
+    except requests.HTTPError as e:
+        if response.status_code == 404:
+            logger.warning(f"Skipping missing file: {file_path} (Not found in branch {branch_name})")
+        else:
+            logger.error(f"Error fetching file content: {e}")
         return None
 
 def review_code(file_path, file_content):
@@ -107,15 +110,12 @@ def review_code(file_path, file_content):
         json_start = ai_response.find("{")
         json_end = ai_response.rfind("}")
         if json_start == -1 or json_end == -1:
-            raise ValueError("Invalid AI response format.")
+            logger.error(f"Invalid AI response format: {ai_response}")
+            return {"review": "AI review could not be generated.", "comments": []}
+        logger.info(json.loads(ai_response[json_start : json_end + 1]))
+        return json.loads(ai_response[json_start : json_end + 1])
 
-        parsed_response = json.loads(ai_response[json_start : json_end + 1])
-        logger.info(parsed_response)
-        return {
-            "review": parsed_response.get("review", "AI review not generated."),
-            "comments": parsed_response.get("comments", [])
-        }
-    except (openai.error.OpenAIError, json.JSONDecodeError, ValueError) as e:
+    except (openai.OpenAIError, json.JSONDecodeError, ValueError) as e:
         logger.error(f"Error reviewing code: {e}")
         return {"review": "AI response could not be parsed.", "comments": []}
 
@@ -165,19 +165,13 @@ def post_pr_comment(pr_number, review):
 if __name__ == "__main__":
     PR_NUMBER = get_latest_pr_number()
     if not PR_NUMBER:
-        logger.info("No open PRs found.")
         exit()
-    
     PR_BRANCH = get_pr_branch(PR_NUMBER)
     if not PR_BRANCH:
-        logger.error("Failed to fetch PR branch.")
         exit()
-    
     files = get_modified_files(PR_NUMBER)
     if not files:
-        logger.info("No modified files found in the PR.")
         exit()
-    
     full_review = ""
     for file in files:
         file_path = file["filename"]
@@ -188,5 +182,4 @@ if __name__ == "__main__":
         if review_data["comments"]:
             post_inline_comments(PR_NUMBER, file_path, review_data["comments"])
         full_review += f"### {file_path}\n{review_data['review']}\n\n"
-    
     post_pr_comment(PR_NUMBER, full_review)
