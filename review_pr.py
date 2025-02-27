@@ -3,133 +3,336 @@ import requests
 import openai
 import base64
 import json
+import logging
+from typing import Optional
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 GITHUB_TOKEN = os.getenv("PAT_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 REPO_NAME = os.getenv("REPO_NAME")
 
-if not GITHUB_TOKEN:
-    raise ValueError("❌ PAT_TOKEN environment variable is missing. Ensure it is set in GitHub Secrets.")
+REQUIRED_ENV_VARS = {
+    "PAT_TOKEN": GITHUB_TOKEN,
+    "OPENAI_API_KEY": OPENAI_API_KEY,
+    "REPO_NAME": REPO_NAME,
+}
+
+missing_vars = [var for var, value in REQUIRED_ENV_VARS.items() if not value]
+if missing_vars:
+    raise ValueError(
+        f"Missing environment variables: {', '.join(missing_vars)}. "
+        "Ensure they are set in GitHub Secrets."
+    )
+
 GITHUB_API_BASE_URL = "https://api.github.com"
 GITHUB_HEADERS = {
     "Authorization": f"token {GITHUB_TOKEN}",
     "Accept": "application/vnd.github.v3+json",
 }
-OPENAI_MODEL = "gpt-4"
-AI_ROLE = "You are a professional software code reviewer. Always respond strictly in JSON format."
+OPENAI_MODEL = "gpt-4o-mini"
+AI_SYSTEM_ROLE = (
+    "You are a professional software code reviewer. "
+    "Always respond strictly in JSON format."
+)
 
+CATEGORIES = [
+    "overall_review",
+    "code_quality_and_best_practices",
+    "readability_and_maintainability",
+    "efficiency_and_performance_improvements",
+    "security_vulnerabilities",
+]
 
- # Fetch latest PR number
-def get_latest_pr_number():
-    
-    url = f"{GITHUB_API_BASE_URL}/repos/{REPO_NAME}/pulls?state=open&sort=created&direction=desc"
-    response = requests.get(url, headers=GITHUB_HEADERS)
-    return response.json()[0]["number"] if response.status_code == 200 and response.json() else None
+# -----------------------------------------------------
+# GitHub API Functions
+# -----------------------------------------------------
 
- # Fetch PR branch name
-def get_pr_branch(pr_number):
-    url = f"{GITHUB_API_BASE_URL}/repos/{REPO_NAME}/pulls/{pr_number}"
-    response = requests.get(url, headers=GITHUB_HEADERS)
-    return response.json().get("head", {}).get("ref") if response.status_code == 200 else None
+def get_latest_pr_number() -> Optional[int]:
+    """
+    Retrieve the latest open PR number for the repository.
 
- # Fetch modified files
-def get_modified_files(pr_number):   
-    url = f"{GITHUB_API_BASE_URL}/repos/{REPO_NAME}/pulls/{pr_number}/files"
-    response = requests.get(url, headers=GITHUB_HEADERS)
-    return response.json() if response.status_code == 200 else []
-
-# Fetch file content from branch
-def get_file_content(file_path, branch_name):
-    url = f"{GITHUB_API_BASE_URL}/repos/{REPO_NAME}/contents/{file_path}?ref={branch_name}"
-    response = requests.get(url, headers=GITHUB_HEADERS)
-    if response.status_code == 200:
-        return base64.b64decode(response.json()["content"]).decode("utf-8")
+    Returns:
+        int | None: The latest PR number if found, otherwise None.
+    """
+    try:
+        url = f"{GITHUB_API_BASE_URL}/repos/{REPO_NAME}/pulls"
+        params = {"state": "open", "sort": "created", "direction": "desc"}
+        response = requests.get(url, headers=GITHUB_HEADERS, params=params)
+        response.raise_for_status()
+        pull_requests = response.json()
+        if pull_requests:
+            return pull_requests[0]["number"]
+        logger.info("No open PR found.")
+    except requests.RequestException as e:
+        logger.error(f"Error fetching latest PR number: {e}")
     return None
 
-# Analyze code with OpenAI
-def review_code(file_path, file_content):
-    
-    language = file_path.split(".")[-1]
-    prompt = (
-        f"""
-        You are an AI code reviewer for {language}. Analyze the following file changes and provide feedback on:
-        - Code quality and best practices
-        - Readability and maintainability
-        - Efficiency and performance improvements
-        - Security vulnerabilities (if any)
-        - Provide inline comments with line numbers and suggest improved code snippets.
+def get_pr_branch(pr_number: int) -> Optional[str]:
+    """
+    Retrieve the branch name associated with a given PR number.
 
-        File Path: {file_path}
-        Code:
-        {file_content}
+    Args:
+        pr_number (int): Pull request number.
 
-        Respond strictly in valid JSON format:
-        {{
-            "review": "Overall review text here.",
-            "comments": [
-                {{"line": 12, "comment": "Consider refactoring this loop to use a dictionary lookup.", "suggested_code": "new_code_here"}}
-            ]
-        }}
-        """
-    )
-    client = openai.OpenAI(api_key=OPENAI_API_KEY)
-    response = client.chat.completions.create(
-        model=OPENAI_MODEL,
-        messages=[{"role": "system", "content": AI_ROLE}, {"role": "user", "content": prompt}]
-    )
+    Returns:
+        str | None: The branch name if found, otherwise None.
+    """
     try:
+        url = f"{GITHUB_API_BASE_URL}/repos/{REPO_NAME}/pulls/{pr_number}"
+        response = requests.get(url, headers=GITHUB_HEADERS)
+        response.raise_for_status()
+        return response.json().get("head", {}).get("ref")
+    except requests.RequestException as e:
+        logger.error(f"Error fetching PR branch: {e}")
+        return None
+
+def get_modified_files(pr_number: int) -> list:
+    """
+    Fetch the modified files in a PR.
+
+    Args:
+        pr_number (int): Pull request number.
+
+    Returns:
+        list: A list of file info objects from GitHub's API.
+    """
+    try:
+        url = f"{GITHUB_API_BASE_URL}/repos/{REPO_NAME}/pulls/{pr_number}/files"
+        response = requests.get(url, headers=GITHUB_HEADERS)
+        response.raise_for_status()
+        return response.json()
+    except requests.RequestException as e:
+        logger.error(f"Error fetching modified files: {e}")
+        return []
+
+def get_file_content(file_path: str, branch_name: str) -> Optional[str]:
+    """
+    Retrieve the file content from a specific PR branch.
+
+    Args:
+        file_path (str): The file path in the repo.
+        branch_name (str): The branch from which to retrieve the file.
+
+    Returns:
+        str | None: The decoded file content if successful, otherwise None.
+    """
+    try:
+        url = f"{GITHUB_API_BASE_URL}/repos/{REPO_NAME}/contents/{file_path}"
+        params = {"ref": branch_name}
+        response = requests.get(url, headers=GITHUB_HEADERS, params=params)
+        response.raise_for_status()
+        content = response.json()["content"]
+        return base64.b64decode(content).decode("utf-8")
+    except requests.RequestException as e:
+        logger.error(f"Error fetching file content for {file_path}: {e}")
+        return None
+
+def get_latest_commit_sha(pr_number: int) -> Optional[str]:
+    """
+    Retrieve the latest commit SHA for a given PR.
+
+    Args:
+        pr_number (int): Pull request number.
+
+    Returns:
+        str | None: The latest commit SHA, or None if not found.
+    """
+    try:
+        url = f"{GITHUB_API_BASE_URL}/repos/{REPO_NAME}/pulls/{pr_number}/commits"
+        response = requests.get(url, headers=GITHUB_HEADERS)
+        response.raise_for_status()
+        commits = response.json()
+        if commits:
+            return commits[-1]["sha"]
+    except requests.RequestException as e:
+        logger.error(f"Error fetching latest commit SHA: {e}")
+    return None
+
+# -----------------------------------------------------
+# OpenAI Review Functions
+# -----------------------------------------------------
+
+def review_code(file_path: str, file_content: str) -> dict:
+    """
+    Send file content to OpenAI for code review and return structured feedback.
+
+    Args:
+        file_path (str): Path of the file being reviewed.
+        file_content (str): Full text content of the file.
+
+    Returns:
+        dict: Structured feedback from OpenAI with keys corresponding to categories.
+    """
+    language = file_path.split(".")[-1]
+    prompt = f"""
+    You are an AI code reviewer for {language}. Analyze the following file changes and provide feedback on:\n
+    - Code quality and best practices\n    - Readability and maintainability\n    - Efficiency and performance improvements\n    - Security vulnerabilities (if any)\n    - Provide inline comments with line numbers and suggest improved code snippets.\n    Additionally, generate an **overall_review** summarizing the key findings.\n\n    File Path: {file_path}\n    Code:\n    {file_content}\n\n    Respond strictly in valid JSON format:\n    {{\n        "overall_review": "Summary of findings.",\n        "code_quality_and_best_practices": [...],\n        "readability_and_maintainability": [...],\n        "efficiency_and_performance_improvements": [...],\n        "security_vulnerabilities": []\n    }}\n    """
+
+    try:
+        # Set openai.api_key if not done globally
+        openai.api_key = OPENAI_API_KEY
+        response = openai.ChatCompletion.create(
+            model=OPENAI_MODEL,
+            messages=[
+                {"role": "system", "content": AI_SYSTEM_ROLE},
+                {"role": "user", "content": prompt},
+            ],
+            temperature=0.0,
+        )
         ai_response = response.choices[0].message.content.strip()
-        return json.loads(ai_response[ai_response.find("{") : ai_response.rfind("}") + 1])
-    except json.JSONDecodeError:
-        return {"review": "AI response could not be parsed.", "comments": []}
 
-# Get latest commit SHA
-def get_latest_commit_sha(pr_number):
-    url = f"{GITHUB_API_BASE_URL}/repos/{REPO_NAME}/pulls/{pr_number}/commits"
-    response = requests.get(url, headers=GITHUB_HEADERS)
-    return response.json()[-1]["sha"] if response.status_code == 200 and response.json() else None
+        # Ensure JSON is properly formatted
+        json_start = ai_response.find("{")
+        json_end = ai_response.rfind("}")
+        if json_start == -1 or json_end == -1:
+            raise ValueError("AI did not return valid JSON.")
 
-# Post inline PR comments
-def post_inline_comments(pr_number, file_path, comments):
+        data = json.loads(ai_response[json_start : json_end + 1])
+
+        # Make sure each category is present
+        final_data = {}
+        for cat in CATEGORIES:
+            if cat == "overall_review":
+                final_data[cat] = data.get(cat, "No overall review.")
+            else:
+                final_data[cat] = data.get(cat, [])
+
+        return final_data
+
+    except (json.JSONDecodeError, ValueError, openai.error.OpenAIError) as e:
+        logger.error(f"Error reviewing code for {file_path}: {e}")
+        return {
+            "overall_review": "AI review could not be generated.",
+            "code_quality_and_best_practices": [],
+            "readability_and_maintainability": [],
+            "efficiency_and_performance_improvements": [],
+            "security_vulnerabilities": []
+        }
+
+# -----------------------------------------------------
+# Posting Comments to GitHub
+# -----------------------------------------------------
+
+def post_inline_comments(pr_number: int, file_path: str, comments: list):
+    """
+    Post inline comments to GitHub for the specified PR and file.
+
+    Args:
+        pr_number (int): Pull request number.
+        file_path (str): File path in the repo.
+        comments (list): List of comment objects from the AI.
+    """
     commit_id = get_latest_commit_sha(pr_number)
-    if not commit_id:
+    if not commit_id or not comments:
         return
+
     for comment in comments:
+        line = comment.get("line")
+        comment_text = comment.get("comment")
+        if not line or not comment_text:
+            continue  # skip invalid
+
         payload = {
-            "body": f"{comment['comment']}\n\n**Suggested Code:**\n```{file_path.split('.')[-1]}\n{comment['suggested_code']}\n```",
+            "body": comment_text,
             "commit_id": commit_id,
             "path": file_path,
             "side": "RIGHT",
-            "line": comment["line"]
+            "line": line
         }
-        url = f"{GITHUB_API_BASE_URL}/repos/{REPO_NAME}/pulls/{pr_number}/comments"
-        requests.post(url, headers=GITHUB_HEADERS, json=payload)
+        try:
+            url = f"{GITHUB_API_BASE_URL}/repos/{REPO_NAME}/pulls/{pr_number}/comments"
+            response = requests.post(url, headers=GITHUB_HEADERS, json=payload)
+            response.raise_for_status()
+            logger.info(f"Posted inline comment on {file_path}, line {line}")
+        except requests.RequestException as e:
+            logger.error(f"Error posting inline comment: {e}")
 
- # Post PR review comment
-def post_pr_comment(pr_number, review):
-    url = f"{GITHUB_API_BASE_URL}/repos/{REPO_NAME}/issues/{pr_number}/comments"
-    requests.post(url, headers=GITHUB_HEADERS, json={"body": review})
+def post_pr_comment(pr_number: int, all_data: dict):
+    """
+    Post a summarized AI review as a single PR comment, including overall review and category feedback.
 
-# Main execution flow
-if __name__ == "__main__":
-    
-    PR_NUMBER = get_latest_pr_number()
-    if not PR_NUMBER:
-        exit()
-    PR_BRANCH = get_pr_branch(PR_NUMBER)
-    if not PR_BRANCH:
-        exit()
-    files = get_modified_files(PR_NUMBER)
-    if not files:
-        exit()
-    full_review = ""
-    for file in files:
-        file_path = file["filename"]
-        file_content = get_file_content(file_path, PR_BRANCH)
-        if not file_content:
+    Args:
+        pr_number (int): Pull request number.
+        all_data (dict): Aggregated AI feedback from multiple files.
+    """
+    body = "## 🔍 Overall AI Review\n"
+    body += f"{all_data.get('overall_review', 'No overall review.')}\n\n"
+
+    for cat in CATEGORIES:
+        if cat == "overall_review":
             continue
-        review_data = review_code(file_path, file_content)
-        if review_data["comments"]:
-            post_inline_comments(PR_NUMBER, file_path, review_data["comments"])
-        full_review += f"### {file_path}\n{review_data['review']}\n\n"
-    post_pr_comment(PR_NUMBER, full_review)
+        if all_data[cat]:
+            nice_cat_name = cat.replace("_", " ").title()
+            body += f"### {nice_cat_name}\n"
+            for cobj in all_data[cat]:
+                line = cobj.get("line", "?")
+                comment_text = cobj.get("comment", "")
+                body += f"- **Line {line}**: {comment_text}\n"
+            body += "\n"
+
+    try:
+        url = f"{GITHUB_API_BASE_URL}/repos/{REPO_NAME}/issues/{pr_number}/comments"
+        response = requests.post(url, headers=GITHUB_HEADERS, json={"body": body})
+        response.raise_for_status()
+        logger.info("Successfully posted AI review comment.")
+    except requests.RequestException as e:
+        logger.error(f"Error posting PR comment: {e}")
+
+
+# -----------------------------------------------------
+# Main Execution
+# -----------------------------------------------------
+if __name__ == "__main__":
+    pr_num = get_latest_pr_number()
+    if not pr_num:
+        logger.info("No open PR found.")
+        exit(0)
+
+    pr_branch = get_pr_branch(pr_num)
+    if not pr_branch:
+        logger.error("Cannot determine PR branch.")
+        exit(0)
+
+    modified_files = get_modified_files(pr_num)
+    if not modified_files:
+        logger.info("No modified files in the PR.")
+        exit(0)
+
+    # aggregator for final pr comment
+    aggregated_data = {
+        "overall_review": "Summary across all files.",
+        "code_quality_and_best_practices": [],
+        "readability_and_maintainability": [],
+        "efficiency_and_performance_improvements": [],
+        "security_vulnerabilities": []
+    }
+
+    for fobj in modified_files:
+        file_path = fobj["filename"]
+        content = get_file_content(file_path, pr_branch)
+        if not content:
+            continue
+
+        # AI review
+        ai_data = review_code(file_path, content)
+
+        # inline comments from all categories except overall_review
+        inline_comments = []
+        for cat in CATEGORIES:
+            if cat == "overall_review":
+                continue
+            inline_comments.extend(ai_data.get(cat, []))
+        post_inline_comments(pr_num, file_path, inline_comments)
+
+        # merge overall_review
+        aggregated_data["overall_review"] += f"\n{ai_data.get('overall_review', '')} (in {file_path})"
+        # merge categories
+        for cat in CATEGORIES:
+            if cat == "overall_review":
+                continue
+            aggregated_data[cat].extend(ai_data.get(cat, []))
+
+    post_pr_comment(pr_num, aggregated_data)
