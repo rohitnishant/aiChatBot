@@ -13,12 +13,11 @@ from typing import Optional, Dict, List
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Load required environment variables
+# Load environment variables
 GITHUB_TOKEN = os.getenv("PAT_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 REPO_NAME = os.getenv("REPO_NAME")
 
-# Validate environment variables
 REQUIRED_ENV_VARS = {
     "PAT_TOKEN": GITHUB_TOKEN,
     "OPENAI_API_KEY": OPENAI_API_KEY,
@@ -44,10 +43,10 @@ GITHUB_HEADERS = {
 # Set OpenAI credentials
 openai.api_key = OPENAI_API_KEY
 
+# For Python 3.9, no union pipe syntax. We'll use "Optional[...]".
 OPENAI_MODEL = "gpt-4o-mini"
 AI_SYSTEM_ROLE = (
-    "You are a professional software code reviewer. "
-    "Always respond strictly in JSON format."
+    "You are a professional software code reviewer. Always respond strictly in JSON format."
 )
 
 CATEGORIES = [
@@ -65,9 +64,8 @@ CATEGORIES = [
 def get_latest_pr_number() -> Optional[int]:
     """
     Retrieve the latest open PR number for the repository.
-    
     Returns:
-        The latest open PR number if found, otherwise None.
+        Optional[int]: The latest open PR number if found, otherwise None.
     """
     try:
         url = f"{GITHUB_API_BASE_URL}/repos/{REPO_NAME}/pulls"
@@ -86,12 +84,10 @@ def get_latest_pr_number() -> Optional[int]:
 def get_pr_branch(pr_number: int) -> Optional[str]:
     """
     Retrieve the branch name for a given PR number.
-
     Args:
-        pr_number: The pull request number.
-
+        pr_number (int): Pull request number.
     Returns:
-        The branch name if found, otherwise None.
+        Optional[str]: The branch name if found, otherwise None.
     """
     try:
         url = f"{GITHUB_API_BASE_URL}/repos/{REPO_NAME}/pulls/{pr_number}"
@@ -107,12 +103,10 @@ def get_pr_branch(pr_number: int) -> Optional[str]:
 def get_modified_files(pr_number: int) -> List[Dict]:
     """
     Fetch the list of modified files for a given PR.
-
     Args:
-        pr_number: The pull request number.
-
+        pr_number (int): Pull request number.
     Returns:
-        A list of file info objects from GitHub's API.
+        list of dict: A list of file info objects from GitHub's API.
     """
     try:
         url = f"{GITHUB_API_BASE_URL}/repos/{REPO_NAME}/pulls/{pr_number}/files"
@@ -126,14 +120,12 @@ def get_modified_files(pr_number: int) -> List[Dict]:
 
 def get_file_content(file_path: str, branch_name: str) -> Optional[str]:
     """
-    Retrieve file content from a specific branch.
-
+    Retrieve file content from a specific PR branch.
     Args:
-        file_path: Path to the file in the repository.
-        branch_name: Branch name to fetch from.
-
+        file_path (str): Path to the file in the repository.
+        branch_name (str): Branch name to fetch from.
     Returns:
-        The decoded file content if successful, otherwise None.
+        Optional[str]: The decoded file content if successful, otherwise None.
     """
     try:
         url = f"{GITHUB_API_BASE_URL}/repos/{REPO_NAME}/contents/{file_path}"
@@ -149,13 +141,11 @@ def get_file_content(file_path: str, branch_name: str) -> Optional[str]:
 
 def get_latest_commit_sha(pr_number: int) -> Optional[str]:
     """
-    Retrieve the latest commit SHA for the given PR.
-
+    Retrieve the latest commit SHA for a given PR.
     Args:
-        pr_number: Pull request number.
-
+        pr_number (int): Pull request number.
     Returns:
-        The latest commit SHA if found, otherwise None.
+        Optional[str]: The latest commit SHA if found, otherwise None.
     """
     try:
         url = f"{GITHUB_API_BASE_URL}/repos/{REPO_NAME}/pulls/{pr_number}/commits"
@@ -169,26 +159,23 @@ def get_latest_commit_sha(pr_number: int) -> Optional[str]:
     return None
 
 # -----------------------------------------------------
-# OpenAI Review Functions
+# OpenAI Review Function
 # -----------------------------------------------------
 
 def review_code(file_path: str, file_content: str) -> dict:
     """
-    Use OpenAI to review a file and return structured feedback.
-
+    Send file content to OpenAI for code review and return structured feedback.
     The returned dict must contain:
-    - overall_review: str
-    - code_quality_and_best_practices: List[dict]
-    - readability_and_maintainability: List[dict]
-    - efficiency_and_performance_improvements: List[dict]
-    - security_vulnerabilities: List[dict]
-
+      - overall_review: str
+      - code_quality_and_best_practices: List[dict]
+      - readability_and_maintainability: List[dict]
+      - efficiency_and_performance_improvements: List[dict]
+      - security_vulnerabilities: List[dict]
     Args:
-        file_path: Path to the file being reviewed.
-        file_content: The file's content as a string.
-
+        file_path (str): Path of the file being reviewed.
+        file_content (str): Full text content of the file.
     Returns:
-        A dict with AI feedback for each category.
+        dict: Structured feedback from OpenAI for each category.
     """
     language = file_path.split(".")[-1]
     prompt = f"""
@@ -199,7 +186,7 @@ def review_code(file_path: str, file_content: str) -> dict:
     - Security vulnerabilities (if any)
     - Provide inline comments with line numbers and suggest improved code snippets.
     
-    Additionally, generate an **overall_review** summarizing the key findings.
+    Additionally, generate an **overall_review** summarizing key findings.
 
     File Path: {file_path}
     Code:
@@ -208,10 +195,7 @@ def review_code(file_path: str, file_content: str) -> dict:
     Respond strictly in valid JSON format:
     {{
       "overall_review": "Summary of findings.",
-      "code_quality_and_best_practices": [
-        {{"line": 12, "comment": "Refactor loop", "suggested_code": "..."}},
-        ...
-      ],
+      "code_quality_and_best_practices": [],
       "readability_and_maintainability": [],
       "efficiency_and_performance_improvements": [],
       "security_vulnerabilities": []
@@ -222,7 +206,7 @@ def review_code(file_path: str, file_content: str) -> dict:
         response = openai.ChatCompletion.create(
             model=OPENAI_MODEL,
             messages=[
-                {"role": "system", "content": AI_ROLE},
+                {"role": "system", "content": AI_SYSTEM_ROLE},
                 {"role": "user", "content": prompt},
             ],
             temperature=0.0,
@@ -234,19 +218,19 @@ def review_code(file_path: str, file_content: str) -> dict:
         json_end = ai_response.rfind("}")
         if json_start == -1 or json_end == -1:
             raise ValueError("AI did not return valid JSON.")
-        parsed = json.loads(ai_response[json_start : json_end + 1])
 
-        # Ensure all categories exist
+        data = json.loads(ai_response[json_start : json_end + 1])
+
+        # Ensure each category is present in final_data
         final_data = {}
         for cat in CATEGORIES:
             if cat == "overall_review":
-                final_data[cat] = parsed.get(cat, "No overall review.")
+                final_data[cat] = data.get(cat, "No overall review.")
             else:
-                final_data[cat] = parsed.get(cat, [])
-
+                final_data[cat] = data.get(cat, [])
         return final_data
 
-    except (json.JSONDecodeError, ValueError, openai.error.OpenAIError) as e:
+    except (json.JSONDecodeError, ValueError, Exception) as e:
         logger.error(f"Error reviewing code '{file_path}': {e}")
         return {
             "overall_review": "AI review could not be generated.",
@@ -262,12 +246,12 @@ def review_code(file_path: str, file_content: str) -> dict:
 
 def post_inline_comments(pr_number: int, file_path: str, comments: list) -> None:
     """
-    Post inline comments to GitHub on a specific file in a PR.
+    Post inline comments to GitHub for the specified PR and file.
 
     Args:
-        pr_number: Pull request number.
-        file_path: File path in the repository.
-        comments: List of dicts, each with {line, comment, suggested_code (optional)}.
+        pr_number (int): Pull request number.
+        file_path (str): File path in the repo.
+        comments (list): List of comment objects from AI (line, comment, etc.).
     """
     commit_id = get_latest_commit_sha(pr_number)
     if not commit_id or not comments:
@@ -277,8 +261,7 @@ def post_inline_comments(pr_number: int, file_path: str, comments: list) -> None
         line = comment.get("line")
         text = comment.get("comment")
         if not line or not text:
-            # skip invalid
-            continue
+            continue  # skip invalid
 
         payload = {
             "body": text,
@@ -300,7 +283,7 @@ def post_pr_comment(pr_number: int, aggregated_data: dict) -> None:
     Post a summarized AI review as a single PR comment.
 
     Args:
-        pr_number: Pull request number.
+        pr_number: The pull request number.
         aggregated_data: Aggregated AI feedback from multiple files.
     """
     body = "## 🔍 Overall AI Review\n"
@@ -309,10 +292,11 @@ def post_pr_comment(pr_number: int, aggregated_data: dict) -> None:
     for cat in CATEGORIES:
         if cat == "overall_review":
             continue
-        if aggregated_data[cat]:
+        items = aggregated_data.get(cat, [])
+        if items:
             cat_title = cat.replace("_", " ").title()
             body += f"### {cat_title}\n"
-            for item in aggregated_data[cat]:
+            for item in items:
                 line_num = item.get("line", "?")
                 comment_text = item.get("comment", "")
                 body += f"- **Line {line_num}**: {comment_text}\n"
@@ -330,7 +314,7 @@ def post_pr_comment(pr_number: int, aggregated_data: dict) -> None:
 # Main Execution
 # -----------------------------------------------------
 
-def main():
+def main() -> None:
     pr_number = get_latest_pr_number()
     if not pr_number:
         logger.info("No open PR found. Exiting...")
@@ -355,17 +339,14 @@ def main():
         "security_vulnerabilities": []
     }
 
-    # Process each file
     for fobj in modified_files:
         file_path = fobj["filename"]
-        file_content = get_file_content(file_path, pr_branch)
-        if not file_content:
+        content = get_file_content(file_path, pr_branch)
+        if not content:
             continue
 
-        # AI review
-        ai_data = review_code(file_path, file_content)
-
-        # gather inline comments from all categories
+        ai_data = review_code(file_path, content)
+        # gather inline comments from all categories except 'overall_review'
         inline_comments = []
         for cat in CATEGORIES:
             if cat == "overall_review":
