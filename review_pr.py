@@ -9,23 +9,31 @@ import logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# These tokens will gets directly fetch from the GitHub secrets.
 GITHUB_TOKEN = os.getenv("PAT_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 REPO_NAME = os.getenv("REPO_NAME")
 
-if not GITHUB_TOKEN:
-    raise ValueError("❌ PAT_TOKEN environment variable is missing. Ensure it is set in GitHub Secrets.")
-if not OPENAI_API_KEY:
-    raise ValueError("❌ OPENAI_API_KEY environment variable is missing. Ensure it is set in GitHub Secrets.")
-if not REPO_NAME:
-    raise ValueError("❌ REPO_NAME environment variable is missing. Ensure it is set in GitHub Secrets.")
 
+
+required_env_vars = {
+    "PAT_TOKEN": GITHUB_TOKEN,
+    "OPENAI_API_KEY": OPENAI_API_KEY,
+    "REPO_NAME": REPO_NAME
+}
+
+missing_vars = [var for var, value in required_env_vars.items() if not value]
+if missing_vars:
+    raise ValueError(f"Missing environment variables: {', '.join(missing_vars)}. Ensure they are set in GitHub Secrets.")
+
+
+/
 GITHUB_API_BASE_URL = "https://api.github.com"
 GITHUB_HEADERS = {
     "Authorization": f"token {GITHUB_TOKEN}",
     "Accept": "application/vnd.github.v3+json",
 }
-OPENAI_MODEL = "gpt-4"
+OPENAI_MODEL = "gpt-4o-mini"
 AI_ROLE = "You are a professional software code reviewer. Always respond strictly in JSON format."
 
 def get_latest_pr_number():
@@ -148,14 +156,14 @@ if __name__ == "__main__":
     if not PR_NUMBER:
         logger.info("No open PRs found.")
         exit()
+
     PR_BRANCH = get_pr_branch(PR_NUMBER)
-    if not PR_BRANCH:
-        logger.error("Failed to fetch PR branch.")
-        exit()
     files = get_modified_files(PR_NUMBER)
-    if not files:
-        logger.info("No modified files found in the PR.")
+
+    if not PR_BRANCH or not files:
+        logger.error("Failed to fetch PR branch or no modified files found in the PR.")
         exit()
+
     full_review = ""
     for file in files:
         file_path = file["filename"]
