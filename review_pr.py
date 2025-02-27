@@ -25,7 +25,6 @@ required_env_vars = {
 missing_vars = [var for var, value in required_env_vars.items() if not value]
 if missing_vars:
     raise ValueError(f"Missing environment variables: {', '.join(missing_vars)}. Ensure they are set in GitHub Secrets.")
-
 GITHUB_API_BASE_URL = "https://api.github.com"
 GITHUB_HEADERS = {
     "Authorization": f"token {GITHUB_TOKEN}",
@@ -33,7 +32,7 @@ GITHUB_HEADERS = {
 }
 
 # we can change the model as we want to use.
-OPENAI_MODEL = "gpt-4o-mini"
+OPENAI_MODEL = "gpt-4"
 
 # AI role for the conversation
 AI_ROLE = "You are a professional software code reviewer. Always respond strictly in JSON format."
@@ -189,4 +188,7 @@ if __name__ == "__main__":
         if review_data["comments"]:
             post_inline_comments(PR_NUMBER, file_path, review_data["comments"])
         full_review += f"### {file_path}\n{review_data['review']}\n\n"
+
     post_pr_comment(PR_NUMBER, full_review)
+
+    
