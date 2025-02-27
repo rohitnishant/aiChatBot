@@ -26,7 +26,9 @@
         $num2 = $_POST['num2'];
         $operation = $_POST['operation'];
         $result = null;
-
+        $extraData['service_id'] = 1;
+        $configId = 23;
+        $isCopyEditingService = ($extraData['service_id'] ?? null == $configId);
         // Perform calculation based on the selected operation
         switch ($operation) {
             case 'add':
