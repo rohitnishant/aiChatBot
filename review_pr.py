@@ -161,6 +161,8 @@ def post_pr_comment(pr_number, review):
     except requests.RequestException as e:
         logger.error(f"Error posting PR comment: {e}")
 
+
+# main section
 if __name__ == "__main__":
     PR_NUMBER = get_latest_pr_number()
     if not PR_NUMBER:
@@ -186,5 +188,9 @@ if __name__ == "__main__":
         review_data = review_code(file_path, file_content)
         if review_data["comments"]:
             post_inline_comments(PR_NUMBER, file_path, review_data["comments"])
-        full_review += f"### {file_path}\n{review_data['review']}\n\n"
-    post_pr_comment(PR_NUMBER, full_review)
+        if review_data["review"]:
+            full_review += f"### {file_path}\n{review_data['review']}\n\n"
+    if full_review:
+        post_pr_comment(PR_NUMBER, full_review)
+    else:
+        logger.info("No review comments to post.")
