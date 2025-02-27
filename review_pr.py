@@ -3,24 +3,13 @@ import requests
 import openai
 import base64
 import json
-import logging
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
-# Environment variables
 GITHUB_TOKEN = os.getenv("PAT_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 REPO_NAME = os.getenv("REPO_NAME")
 
 if not GITHUB_TOKEN:
-    raise ValueError("PAT_TOKEN environment variable is missing. Ensure it is set in GitHub Secrets.")
-if not OPENAI_API_KEY:
-    raise ValueError("OPENAI_API_KEY environment variable is missing.")
-if not REPO_NAME:
-    raise ValueError("REPO_NAME environment variable is missing.")
-
+    raise ValueError(" PAT_TOKEN environment variable is missing. Ensure it is set in GitHub Secrets.")
 GITHUB_API_BASE_URL = "https://api.github.com"
 GITHUB_HEADERS = {
     "Authorization": f"token {GITHUB_TOKEN}",
@@ -29,39 +18,37 @@ GITHUB_HEADERS = {
 OPENAI_MODEL = "gpt-4"
 AI_ROLE = "You are a professional software code reviewer. Always respond strictly in JSON format."
 
+
+ # Fetch latest PR number
 def get_latest_pr_number():
+    
     url = f"{GITHUB_API_BASE_URL}/repos/{REPO_NAME}/pulls?state=open&sort=created&direction=desc"
     response = requests.get(url, headers=GITHUB_HEADERS)
-    if response.status_code == 200 and response.json():
-        return response.json()[0]["number"]
-    logger.error("Failed to fetch latest PR number.")
-    return None
+    return response.json()[0]["number"] if response.status_code == 200 and response.json() else None
 
+ # Fetch PR branch name
 def get_pr_branch(pr_number):
     url = f"{GITHUB_API_BASE_URL}/repos/{REPO_NAME}/pulls/{pr_number}"
     response = requests.get(url, headers=GITHUB_HEADERS)
-    if response.status_code == 200:
-        return response.json().get("head", {}).get("ref")
-    logger.error(f"Failed to fetch branch name for PR #{pr_number}.")
-    return None
+    return response.json().get("head", {}).get("ref") if response.status_code == 200 else None
 
-def get_modified_files(pr_number):
+ # Fetch modified files
+def get_modified_files(pr_number):   
     url = f"{GITHUB_API_BASE_URL}/repos/{REPO_NAME}/pulls/{pr_number}/files"
     response = requests.get(url, headers=GITHUB_HEADERS)
-    if response.status_code == 200:
-        return response.json()
-    logger.error(f"Failed to fetch modified files for PR #{pr_number}.")
-    return []
+    return response.json() if response.status_code == 200 else []
 
+# Fetch file content from branch
 def get_file_content(file_path, branch_name):
     url = f"{GITHUB_API_BASE_URL}/repos/{REPO_NAME}/contents/{file_path}?ref={branch_name}"
     response = requests.get(url, headers=GITHUB_HEADERS)
     if response.status_code == 200:
         return base64.b64decode(response.json()["content"]).decode("utf-8")
-    logger.error(f"Failed to fetch content for file {file_path} on branch {branch_name}.")
     return None
 
+# Analyze code with OpenAI
 def review_code(file_path, file_content):
+    
     language = file_path.split(".")[-1]
     prompt = (
         f"""
@@ -85,26 +72,24 @@ def review_code(file_path, file_content):
         }}
         """
     )
+    client = openai.OpenAI(api_key=OPENAI_API_KEY)
+    response = client.chat.completions.create(
+        model=OPENAI_MODEL,
+        messages=[{"role": "system", "content": AI_ROLE}, {"role": "user", "content": prompt}]
+    )
     try:
-        client = openai.OpenAI(api_key=OPENAI_API_KEY)
-        response = client.chat.completions.create(
-            model=OPENAI_MODEL,
-            messages=[{"role": "system", "content": AI_ROLE}, {"role": "user", "content": prompt}]
-        )
         ai_response = response.choices[0].message.content.strip()
-        return json.loads(ai_response[ai_response.find("{"):ai_response.rfind("}") + 1])
-    except (json.JSONDecodeError, IndexError) as e:
-        logger.error(f"Failed to parse AI response: {e}")
+        return json.loads(ai_response[ai_response.find("{") : ai_response.rfind("}") + 1])
+    except json.JSONDecodeError:
         return {"review": "AI response could not be parsed.", "comments": []}
 
+# Get latest commit SHA
 def get_latest_commit_sha(pr_number):
     url = f"{GITHUB_API_BASE_URL}/repos/{REPO_NAME}/pulls/{pr_number}/commits"
     response = requests.get(url, headers=GITHUB_HEADERS)
-    if response.status_code == 200 and response.json():
-        return response.json()[-1]["sha"]
-    logger.error(f"Failed to fetch latest commit SHA for PR #{pr_number}.")
-    return None
+    return response.json()[-1]["sha"] if response.status_code == 200 and response.json() else None
 
+# Post inline PR comments
 def post_inline_comments(pr_number, file_path, comments):
     commit_id = get_latest_commit_sha(pr_number)
     if not commit_id:
@@ -118,28 +103,24 @@ def post_inline_comments(pr_number, file_path, comments):
             "line": comment["line"]
         }
         url = f"{GITHUB_API_BASE_URL}/repos/{REPO_NAME}/pulls/{pr_number}/comments"
-        response = requests.post(url, headers=GITHUB_HEADERS, json=payload)
-        if response.status_code != 201:
-            logger.error(f"Failed to post inline comment for PR #{pr_number} on file {file_path}.")
+        requests.post(url, headers=GITHUB_HEADERS, json=payload)
 
+ # Post PR review comment
 def post_pr_comment(pr_number, review):
     url = f"{GITHUB_API_BASE_URL}/repos/{REPO_NAME}/issues/{pr_number}/comments"
-    response = requests.post(url, headers=GITHUB_HEADERS, json={"body": review})
-    if response.status_code != 201:
-        logger.error(f"Failed to post PR comment for PR #{pr_number}.")
+    requests.post(url, headers=GITHUB_HEADERS, json={"body": review})
 
+# Main execution flow
 if __name__ == "__main__":
+    
     PR_NUMBER = get_latest_pr_number()
     if not PR_NUMBER:
-        logger.error("No open PRs found.")
         exit()
     PR_BRANCH = get_pr_branch(PR_NUMBER)
     if not PR_BRANCH:
-        logger.error(f"Failed to get branch for PR #{PR_NUMBER}.")
         exit()
     files = get_modified_files(PR_NUMBER)
     if not files:
-        logger.error(f"No modified files found for PR #{PR_NUMBER}.")
         exit()
     full_review = ""
     for file in files:
