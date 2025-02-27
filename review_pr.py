@@ -103,12 +103,8 @@ def review_code(file_path, file_content):
             messages=[{"role": "system", "content": AI_ROLE}, {"role": "user", "content": prompt}]
         )
         ai_response = response.choices[0].message.content.strip()
-        response_json = json.loads(ai_response[ai_response.find("{") : ai_response.rfind("}") + 1])
-        print(response_json)
-        return {
-            "review": response_json.get("review", "No review provided."),
-            "comments": response_json.get("comments", [])
-        }
+        return json.loads(ai_response[ai_response.find("{") : ai_response.rfind("}") + 1])
+
     except (openai.error.OpenAIError, json.JSONDecodeError) as e:
         logger.error(f"Error reviewing code: {e}")
         return {"review": "AI response could not be parsed.", "comments": []}
