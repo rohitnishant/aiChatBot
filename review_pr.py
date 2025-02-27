@@ -13,12 +13,16 @@ GITHUB_TOKEN = os.getenv("PAT_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 REPO_NAME = os.getenv("REPO_NAME")
 
+# Environment variable validation
 if not GITHUB_TOKEN:
-    raise ValueError("❌ PAT_TOKEN environment variable is missing. Ensure it is set in GitHub Secrets.")
+    logger.error("❌ PAT_TOKEN environment variable is missing.")
+    exit(1)
 if not OPENAI_API_KEY:
-    raise ValueError("❌ OPENAI_API_KEY environment variable is missing. Ensure it is set in GitHub Secrets.")
+    logger.error("❌ OPENAI_API_KEY environment variable is missing.")
+    exit(1)
 if not REPO_NAME:
-    raise ValueError("❌ REPO_NAME environment variable is missing. Ensure it is set in GitHub Secrets.")
+    logger.error("❌ REPO_NAME environment variable is missing.")
+    exit(1)
 
 GITHUB_API_BASE_URL = "https://api.github.com"
 GITHUB_HEADERS = {
@@ -165,7 +169,7 @@ if __name__ == "__main__":
             continue
         review_data = review_code(file_path, file_content)
         logger.info(f"Review for {file_path}: {review_data}")
-        if review_data["comments"]:
+        if review_data.get("comments"):
             post_inline_comments(PR_NUMBER, file_path, review_data["comments"])
-        full_review += f"### {file_path}\n{review_data['review']}\n\n"
+        full_review += f"### {file_path}\n{review_data.get('review', 'No review found.')}\n\n"
     post_pr_comment(PR_NUMBER, full_review)
