@@ -9,25 +9,30 @@ import logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# these token we will fetch from github secrets
 GITHUB_TOKEN = os.getenv("PAT_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 REPO_NAME = os.getenv("REPO_NAME")
 
-if not GITHUB_TOKEN:
-    raise ValueError("❌ PAT_TOKEN environment variable is missing. Ensure it is set in GitHub Secrets.")
-if not OPENAI_API_KEY:
-    raise ValueError("❌ OPENAI_API_KEY environment variable is missing. Ensure it is set in GitHub Secrets.")
-if not REPO_NAME:
-    raise ValueError("❌ REPO_NAME environment variable is missing. Ensure it is set in GitHub Secrets.")
+required_env_vars = {
+    "PAT_TOKEN": GITHUB_TOKEN,
+    "OPENAI_API_KEY": OPENAI_API_KEY,
+    "REPO_NAME": REPO_NAME,
+}
+
+missing_vars = [var for var, value in required_env_vars.items() if not value]
+if missing_vars:
+    raise ValueError(f"Missing environment variables: {', '.join(missing_vars)}. Ensure they are set in GitHub Secrets.")
 
 GITHUB_API_BASE_URL = "https://api.github.com"
 GITHUB_HEADERS = {
     "Authorization": f"token {GITHUB_TOKEN}",
     "Accept": "application/vnd.github.v3+json",
 }
-OPENAI_MODEL = "gpt-4"
+OPENAI_MODEL = "gpt-4o-mini"
 AI_ROLE = "You are a professional software code reviewer. Always respond strictly in JSON format."
 
+#It fetches the latest PR number
 def get_latest_pr_number():
     try:
         url = f"{GITHUB_API_BASE_URL}/repos/{REPO_NAME}/pulls?state=open&sort=created&direction=desc"
@@ -39,6 +44,7 @@ def get_latest_pr_number():
         logger.error(f"Error fetching latest PR number: {e}")
         return None
 
+# It fetches the PR branch name anf then use github api to fetch the modified files
 def get_pr_branch(pr_number):
     try:
         url = f"{GITHUB_API_BASE_URL}/repos/{REPO_NAME}/pulls/{pr_number}"
@@ -49,6 +55,7 @@ def get_pr_branch(pr_number):
         logger.error(f"Error fetching PR branch: {e}")
         return None
 
+# It fetches the modified files in the PR using github api
 def get_modified_files(pr_number):
     try:
         url = f"{GITHUB_API_BASE_URL}/repos/{REPO_NAME}/pulls/{pr_number}/files"
@@ -59,6 +66,7 @@ def get_modified_files(pr_number):
         logger.error(f"Error fetching modified files: {e}")
         return []
 
+# It fetches the file content using github api anf this content we will pass to openai for review
 def get_file_content(file_path, branch_name):
     try:
         url = f"{GITHUB_API_BASE_URL}/repos/{REPO_NAME}/contents/{file_path}?ref={branch_name}"
@@ -69,6 +77,9 @@ def get_file_content(file_path, branch_name):
         logger.error(f"Error fetching file content: {e}")
         return None
 
+# It will review the code using openai api and return the response in json format 
+# we can change the prompt as per our requirement
+#eg if you dont want nested ifs and too many loops you can add that in prompt and review will done accordingly
 def review_code(file_path, file_content):
     language = file_path.split(".")[-1]
     prompt = (
@@ -105,6 +116,7 @@ def review_code(file_path, file_content):
         logger.error(f"Error reviewing code: {e}")
         return {"review": "AI response could not be parsed.", "comments": []}
 
+# It will get the latest commit sha using github api in which gtp response will be posted.
 def get_latest_commit_sha(pr_number):
     try:
         url = f"{GITHUB_API_BASE_URL}/repos/{REPO_NAME}/pulls/{pr_number}/commits"
@@ -116,6 +128,7 @@ def get_latest_commit_sha(pr_number):
         logger.error(f"Error fetching latest commit SHA: {e}")
         return None
 
+# It will post the inline comments on the PR using github api
 def post_inline_comments(pr_number, file_path, comments):
     commit_id = get_latest_commit_sha(pr_number)
     if not commit_id:
@@ -135,6 +148,9 @@ def post_inline_comments(pr_number, file_path, comments):
         except requests.RequestException as e:
             logger.error(f"Error posting inline comment: {e}")
 
+# It will post the review on the PR using github api  , same response we are getting from openai
+# we can play with the prompt to get the desired response
+# for now , it will summarise each file and post review on PR
 def post_pr_comment(pr_number, review):
     try:
         url = f"{GITHUB_API_BASE_URL}/repos/{REPO_NAME}/issues/{pr_number}/comments"
@@ -148,14 +164,17 @@ if __name__ == "__main__":
     if not PR_NUMBER:
         logger.info("No open PRs found.")
         exit()
+
     PR_BRANCH = get_pr_branch(PR_NUMBER)
     if not PR_BRANCH:
         logger.error("Failed to fetch PR branch.")
         exit()
+
     files = get_modified_files(PR_NUMBER)
     if not files:
         logger.info("No modified files found in the PR.")
         exit()
+    
     full_review = ""
     for file in files:
         file_path = file["filename"]
