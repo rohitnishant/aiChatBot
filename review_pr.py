@@ -3,6 +3,11 @@ import requests
 import openai
 import base64
 import json
+import logging
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 GITHUB_TOKEN = os.getenv("PAT_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
@@ -10,6 +15,11 @@ REPO_NAME = os.getenv("REPO_NAME")
 
 if not GITHUB_TOKEN:
     raise ValueError("❌ PAT_TOKEN environment variable is missing. Ensure it is set in GitHub Secrets.")
+if not OPENAI_API_KEY:
+    raise ValueError("❌ OPENAI_API_KEY environment variable is missing. Ensure it is set in GitHub Secrets.")
+if not REPO_NAME:
+    raise ValueError("❌ REPO_NAME environment variable is missing. Ensure it is set in GitHub Secrets.")
+
 GITHUB_API_BASE_URL = "https://api.github.com"
 GITHUB_HEADERS = {
     "Authorization": f"token {GITHUB_TOKEN}",
@@ -18,37 +28,48 @@ GITHUB_HEADERS = {
 OPENAI_MODEL = "gpt-4"
 AI_ROLE = "You are a professional software code reviewer. Always respond strictly in JSON format."
 
-
- # Fetch latest PR number
 def get_latest_pr_number():
-    
-    url = f"{GITHUB_API_BASE_URL}/repos/{REPO_NAME}/pulls?state=open&sort=created&direction=desc"
-    response = requests.get(url, headers=GITHUB_HEADERS)
-    return response.json()[0]["number"] if response.status_code == 200 and response.json() else None
+    try:
+        url = f"{GITHUB_API_BASE_URL}/repos/{REPO_NAME}/pulls?state=open&sort=created&direction=desc"
+        response = requests.get(url, headers=GITHUB_HEADERS)
+        response.raise_for_status()
+        prs = response.json()
+        return prs[0]["number"] if prs else None
+    except requests.RequestException as e:
+        logger.error(f"Error fetching latest PR number: {e}")
+        return None
 
- # Fetch PR branch name
 def get_pr_branch(pr_number):
-    url = f"{GITHUB_API_BASE_URL}/repos/{REPO_NAME}/pulls/{pr_number}"
-    response = requests.get(url, headers=GITHUB_HEADERS)
-    return response.json().get("head", {}).get("ref") if response.status_code == 200 else None
+    try:
+        url = f"{GITHUB_API_BASE_URL}/repos/{REPO_NAME}/pulls/{pr_number}"
+        response = requests.get(url, headers=GITHUB_HEADERS)
+        response.raise_for_status()
+        return response.json().get("head", {}).get("ref")
+    except requests.RequestException as e:
+        logger.error(f"Error fetching PR branch: {e}")
+        return None
 
- # Fetch modified files
-def get_modified_files(pr_number):   
-    url = f"{GITHUB_API_BASE_URL}/repos/{REPO_NAME}/pulls/{pr_number}/files"
-    response = requests.get(url, headers=GITHUB_HEADERS)
-    return response.json() if response.status_code == 200 else []
+def get_modified_files(pr_number):
+    try:
+        url = f"{GITHUB_API_BASE_URL}/repos/{REPO_NAME}/pulls/{pr_number}/files"
+        response = requests.get(url, headers=GITHUB_HEADERS)
+        response.raise_for_status()
+        return response.json()
+    except requests.RequestException as e:
+        logger.error(f"Error fetching modified files: {e}")
+        return []
 
-# Fetch file content from branch
 def get_file_content(file_path, branch_name):
-    url = f"{GITHUB_API_BASE_URL}/repos/{REPO_NAME}/contents/{file_path}?ref={branch_name}"
-    response = requests.get(url, headers=GITHUB_HEADERS)
-    if response.status_code == 200:
+    try:
+        url = f"{GITHUB_API_BASE_URL}/repos/{REPO_NAME}/contents/{file_path}?ref={branch_name}"
+        response = requests.get(url, headers=GITHUB_HEADERS)
+        response.raise_for_status()
         return base64.b64decode(response.json()["content"]).decode("utf-8")
-    return None
+    except requests.RequestException as e:
+        logger.error(f"Error fetching file content: {e}")
+        return None
 
-# Analyze code with OpenAI
 def review_code(file_path, file_content):
-    
     language = file_path.split(".")[-1]
     prompt = (
         f"""
@@ -72,24 +93,29 @@ def review_code(file_path, file_content):
         }}
         """
     )
-    client = openai.OpenAI(api_key=OPENAI_API_KEY)
-    response = client.chat.completions.create(
-        model=OPENAI_MODEL,
-        messages=[{"role": "system", "content": AI_ROLE}, {"role": "user", "content": prompt}]
-    )
     try:
+        client = openai.OpenAI(api_key=OPENAI_API_KEY)
+        response = client.chat.completions.create(
+            model=OPENAI_MODEL,
+            messages=[{"role": "system", "content": AI_ROLE}, {"role": "user", "content": prompt}]
+        )
         ai_response = response.choices[0].message.content.strip()
         return json.loads(ai_response[ai_response.find("{") : ai_response.rfind("}") + 1])
-    except json.JSONDecodeError:
+    except (openai.error.OpenAIError, json.JSONDecodeError) as e:
+        logger.error(f"Error reviewing code: {e}")
         return {"review": "AI response could not be parsed.", "comments": []}
 
-# Get latest commit SHA
 def get_latest_commit_sha(pr_number):
-    url = f"{GITHUB_API_BASE_URL}/repos/{REPO_NAME}/pulls/{pr_number}/commits"
-    response = requests.get(url, headers=GITHUB_HEADERS)
-    return response.json()[-1]["sha"] if response.status_code == 200 and response.json() else None
+    try:
+        url = f"{GITHUB_API_BASE_URL}/repos/{REPO_NAME}/pulls/{pr_number}/commits"
+        response = requests.get(url, headers=GITHUB_HEADERS)
+        response.raise_for_status()
+        commits = response.json()
+        return commits[-1]["sha"] if commits else None
+    except requests.RequestException as e:
+        logger.error(f"Error fetching latest commit SHA: {e}")
+        return None
 
-# Post inline PR comments
 def post_inline_comments(pr_number, file_path, comments):
     commit_id = get_latest_commit_sha(pr_number)
     if not commit_id:
@@ -102,25 +128,33 @@ def post_inline_comments(pr_number, file_path, comments):
             "side": "RIGHT",
             "line": comment["line"]
         }
-        url = f"{GITHUB_API_BASE_URL}/repos/{REPO_NAME}/pulls/{pr_number}/comments"
-        requests.post(url, headers=GITHUB_HEADERS, json=payload)
+        try:
+            url = f"{GITHUB_API_BASE_URL}/repos/{REPO_NAME}/pulls/{pr_number}/comments"
+            response = requests.post(url, headers=GITHUB_HEADERS, json=payload)
+            response.raise_for_status()
+        except requests.RequestException as e:
+            logger.error(f"Error posting inline comment: {e}")
 
- # Post PR review comment
 def post_pr_comment(pr_number, review):
-    url = f"{GITHUB_API_BASE_URL}/repos/{REPO_NAME}/issues/{pr_number}/comments"
-    requests.post(url, headers=GITHUB_HEADERS, json={"body": review})
+    try:
+        url = f"{GITHUB_API_BASE_URL}/repos/{REPO_NAME}/issues/{pr_number}/comments"
+        response = requests.post(url, headers=GITHUB_HEADERS, json={"body": review})
+        response.raise_for_status()
+    except requests.RequestException as e:
+        logger.error(f"Error posting PR comment: {e}")
 
-# Main execution flow
 if __name__ == "__main__":
-    
     PR_NUMBER = get_latest_pr_number()
     if not PR_NUMBER:
+        logger.info("No open PRs found.")
         exit()
     PR_BRANCH = get_pr_branch(PR_NUMBER)
     if not PR_BRANCH:
+        logger.error("Failed to fetch PR branch.")
         exit()
     files = get_modified_files(PR_NUMBER)
     if not files:
+        logger.info("No modified files found in the PR.")
         exit()
     full_review = ""
     for file in files:
