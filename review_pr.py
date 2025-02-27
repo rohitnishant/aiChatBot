@@ -163,6 +163,7 @@ if __name__ == "__main__":
         if not file_content:
             continue
         review_data = review_code(file_path, file_content)
+        logger.info(f"Review for {file_path}: {review_data}")
         if review_data["comments"]:
             post_inline_comments(PR_NUMBER, file_path, review_data["comments"])
         full_review += f"### {file_path}\n{review_data['review']}\n\n"
