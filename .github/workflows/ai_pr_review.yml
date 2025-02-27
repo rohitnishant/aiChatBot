@@ -19,11 +19,11 @@ jobs:
           python-version: '3.9'
 
       - name: Install Dependencies
-        run: pip install requests openai python-dotenv
+        run: pip install requests openai aiohttp 
 
       - name: Run AI Review Script
         run: python review_pr.py
         env:
-          PAT_TOKEN: ${{ secrets.PAT_TOKEN }}  # Ensure it's correctly passed
+          PAT_TOKEN: ${{ secrets.PAT_TOKEN }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           REPO_NAME: ${{ vars.REPO_NAME }}
