@@ -62,21 +62,15 @@ def get_modified_files(pr_number):
         logger.error(f"Error fetching modified files: {e}")
         return []
 
-# """Fetch file content from the PR branch. also handled deleted file condition"""
+# """Fetch file content from the PR branch."""
 def get_file_content(file_path, branch_name):
     try:
         url = f"{GITHUB_API_BASE_URL}/repos/{REPO_NAME}/contents/{file_path}?ref={branch_name}"
         response = requests.get(url, headers=GITHUB_HEADERS)
-
-        if response.status_code == 404:
-            logger.warning(f"Skipping deleted file: {file_path}")
-            return None  
-
         response.raise_for_status()
         return base64.b64decode(response.json().get("content", "")).decode("utf-8")
-
     except requests.RequestException as e:
-        logger.error(f"Error fetching file content for {file_path}: {e}")
+        logger.error(f"Error fetching file content: {e}")
         return None
 
 #  """Review code using OpenAI API and return structured JSON response, we can change prompt as per our need"""
@@ -181,16 +175,9 @@ if __name__ == "__main__":
         full_review = ""
         for file in files:
             file_path = file["filename"]
-
-            # Skip deleted files
-            if file.get("status") == "removed":
-                logger.info(f"Skipping deleted file: {file_path}")
-                continue
-
             file_content = get_file_content(file_path, PR_BRANCH)
             if not file_content:
-                continue  # Skip if content couldn't be retrieved
-
+                continue
             review_data = review_code(file_path, file_content)
 
             if review_data.get("comments", []):
@@ -202,4 +189,4 @@ if __name__ == "__main__":
             post_pr_comment(PR_NUMBER, full_review)
 
     except Exception as e:
-            logger.error(f"Unexpected error: {e}")
+        logger.error(f"Unexpected error: {e}")
