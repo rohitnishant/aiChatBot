@@ -1,0 +1,20 @@
+name: Trigger AI PR Review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  trigger-ai-review:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Extract PR Number and Repository Name
+        run: |
+          echo "PR_NUMBER=${{ github.event.pull_request.number }}" >> $GITHUB_ENV
+          echo "REPO_NAME=${{ github.repository }}" >> $GITHUB_ENV
+
+      - name: Run AI PR Review
+        env:
+          PAT_TOKEN: ${{ secrets.PAT_TOKEN }}
+        run: |
+          curl -sSL -H "Authorization: token $PAT_TOKEN"                -H "Accept: application/vnd.github.v3.raw"                https://raw.githubusercontent.com/cactuscommunications/PRoofAI/main/scripts/run_review.sh | bash -s "$REPO_NAME" "$PR_NUMBER"
